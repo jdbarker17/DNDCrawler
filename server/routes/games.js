@@ -166,4 +166,36 @@ router.put('/:id/map', (req, res) => {
   res.json({ success: true });
 });
 
+/**
+ * GET /api/games/:id/messages
+ * Get chat message history for a game.
+ * Returns group messages + DMs involving the current user.
+ */
+router.get('/:id/messages', (req, res) => {
+  const gameId = parseInt(req.params.id, 10);
+
+  // Check membership
+  const membership = db.prepare(
+    'SELECT role FROM game_players WHERE game_id = ? AND user_id = ?'
+  ).get(gameId, req.user.id);
+
+  if (!membership) {
+    return res.status(403).json({ error: 'You are not a member of this game' });
+  }
+
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+
+  // Get group messages + DMs where user is sender or recipient
+  const messages = db.prepare(`
+    SELECT id, game_id, sender_id, sender_name, recipient_id, content, created_at
+    FROM messages
+    WHERE game_id = ?
+      AND (recipient_id IS NULL OR sender_id = ? OR recipient_id = ?)
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(gameId, req.user.id, req.user.id, limit);
+
+  res.json({ messages });
+});
+
 export default router;

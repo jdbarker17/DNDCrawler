@@ -58,6 +58,16 @@ db.exec(`
     angle REAL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id INTEGER NOT NULL REFERENCES games(id),
+    sender_id INTEGER NOT NULL REFERENCES users(id),
+    sender_name TEXT NOT NULL,
+    recipient_id INTEGER,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 export default db;

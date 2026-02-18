@@ -145,3 +145,9 @@ export async function deleteCharacter(charId) {
     method: 'DELETE',
   });
 }
+
+// --- Messages ---
+
+export async function getMessages(gameId) {
+  return apiFetch(`/api/games/${gameId}/messages`);
+}

@@ -13,10 +13,12 @@ import { RaycastRenderer } from './renderers/RaycastRenderer.js';
 import { DMTools } from './ui/DMTools.js';
 import { PlayerRoster } from './ui/PlayerRoster.js';
 import { TurnTracker } from './ui/TurnTracker.js';
+import { ChatPanel } from './ui/ChatPanel.js';
 import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
+  getMessages,
 } from './services/api.js';
 import * as socket from './services/socket.js';
 
@@ -24,6 +26,7 @@ import * as socket from './services/socket.js';
 let currentUser = null;   // { id, username }
 let currentGameId = null;
 let currentRole = null;   // 'dm' | 'player'
+let gamePlayers = [];     // [{ userId, username, role }] – all users in the game
 let gameMap = null;
 let players = [];
 let activePlayer = null;
@@ -88,6 +91,13 @@ async function loadGame(gameId) {
     const state = await getGameState(gameId);
     currentRole = state.my_role;
 
+    // Store game player list (users, not characters) for chat DM targets
+    gamePlayers = (state.players || []).map(p => ({
+      userId: p.user_id,
+      username: p.username,
+      role: p.role,
+    }));
+
     // Load map
     if (state.map_data) {
       gameMap = GameMap.fromJSON(state.map_data);
@@ -137,6 +147,7 @@ let minimapRenderer = null;
 let dmTools = null;
 let roster = null;
 let turnTracker = null;
+let chatPanel = null;
 let animFrameId = null;
 let saveTimer = 0;
 
@@ -222,6 +233,34 @@ function initGameUI() {
       socket.sendInitiativeRoll(characterId, roll);
     }
   );
+
+  // Chat Panel
+  chatPanel = new ChatPanel(
+    document.getElementById('chat-container'),
+    currentUser,
+    gamePlayers,
+    (content, recipientId) => {
+      socket.sendChatMessage(content, recipientId);
+    }
+  );
+
+  // Load chat history
+  getMessages(currentGameId).then((data) => {
+    if (data && data.messages && chatPanel) {
+      // Normalize field names from REST (snake_case) to match WS format (camelCase)
+      const normalized = data.messages.map(m => ({
+        id: m.id,
+        senderId: m.sender_id,
+        senderName: m.sender_name,
+        recipientId: m.recipient_id,
+        content: m.content,
+        createdAt: m.created_at,
+      }));
+      chatPanel.loadHistory(normalized);
+    }
+  }).catch((err) => {
+    console.error('Failed to load chat history:', err);
+  });
 
   // View state
   viewMode = '2d';
@@ -344,6 +383,13 @@ function initGameUI() {
       turnTracker.setInitiativeRoll(msg.characterId, msg.roll);
     }
   });
+
+  // --- Chat message from server ---
+  socket.onChatMessage((msg) => {
+    if (chatPanel) {
+      chatPanel.addMessage(msg);
+    }
+  });
 }
 
 function cleanup() {
@@ -374,13 +420,15 @@ function cleanup() {
   const recenterBtn = document.getElementById('recenter-btn');
   if (recenterBtn) recenterBtn.removeEventListener('click', recenterCamera);
 
-  // Clear roster, DM tools, and turn tracker containers
+  // Clear roster, DM tools, turn tracker, and chat containers
   const toolbar = document.getElementById('toolbar');
   const rosterEl = document.getElementById('roster-container');
   const turnTrackerEl = document.getElementById('turn-tracker-container');
+  const chatEl = document.getElementById('chat-container');
   if (toolbar) toolbar.innerHTML = '';
   if (rosterEl) rosterEl.innerHTML = '';
   if (turnTrackerEl) turnTrackerEl.innerHTML = '';
+  if (chatEl) chatEl.innerHTML = '';
 
   // Clear "Your Turn" banner
   if (yourTurnBanner && yourTurnBanner.parentNode) {
@@ -404,6 +452,7 @@ function cleanup() {
   dmTools = null;
   roster = null;
   turnTracker = null;
+  chatPanel = null;
 }
 
 function stopGameLoop() {
@@ -506,7 +555,7 @@ function onMouseMove(e) {
 }
 
 function onKeyDown(e) {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
   if (e.code === 'Tab') {
     e.preventDefault();

@@ -162,6 +162,12 @@ export function initWebSocket(server) {
         return;
       }
 
+      // --- Chat message ---
+      if (msg.type === 'chat_message') {
+        handleChatMessage(client, msg);
+        return;
+      }
+
       // --- DM drag (DM only) ---
       if (msg.type === 'dm_drag') {
         if (client.role !== 'dm') return;
@@ -198,6 +204,46 @@ export function initWebSocket(server) {
   saveInterval = setInterval(flushPositionSaves, 3000);
 
   console.log('WebSocket server initialized on /ws');
+}
+
+/**
+ * Handle a chat message: validate, persist to DB, route to recipients.
+ */
+function handleChatMessage(client, msg) {
+  let content = typeof msg.content === 'string' ? msg.content.trim() : '';
+  if (!content || content.length > 500) return;
+
+  const recipientId = typeof msg.recipientId === 'number' ? msg.recipientId : null;
+
+  // Persist to database
+  const result = db.prepare(
+    'INSERT INTO messages (game_id, sender_id, sender_name, recipient_id, content) VALUES (?, ?, ?, ?, ?)'
+  ).run(client.gameId, client.userId, client.username, recipientId, content);
+
+  const outMsg = {
+    type: 'chat_message',
+    id: Number(result.lastInsertRowid),
+    senderId: client.userId,
+    senderName: client.username,
+    recipientId,
+    content,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (recipientId === null) {
+    // Group message — broadcast to everyone in the room
+    broadcastToAll(client.gameId, outMsg);
+  } else {
+    // DM — send to sender + recipient only
+    const data = JSON.stringify(outMsg);
+    const room = rooms.get(client.gameId);
+    if (!room) return;
+    for (const c of room) {
+      if ((c.userId === client.userId || c.userId === recipientId) && c.ws.readyState === 1) {
+        c.ws.send(data);
+      }
+    }
+  }
 }
 
 /**

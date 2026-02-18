@@ -23,6 +23,7 @@ const handlers = {
   turn_update: [],
   dm_drag: [],
   initiative_roll: [],
+  chat_message: [],
 };
 
 /**
@@ -188,6 +189,16 @@ export function sendInitiativeRoll(characterId, roll) {
   ws.send(JSON.stringify({ type: 'initiative_roll', characterId, roll }));
 }
 
+/**
+ * Send a chat message (group or DM).
+ * @param {string} content – message text
+ * @param {number|null} recipientId – null for group, userId for DM
+ */
+export function sendChatMessage(content, recipientId = null) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'chat_message', content, recipientId }));
+}
+
 // --- Register event handlers ---
 
 /**
@@ -239,6 +250,14 @@ export function onInitiativeRoll(callback) {
 }
 
 /**
+ * Register a handler for chat messages.
+ * Callback receives: { id, senderId, senderName, recipientId, content, createdAt }
+ */
+export function onChatMessage(callback) {
+  handlers.chat_message.push(callback);
+}
+
+/**
  * Clear all event handlers (called on cleanup).
  */
 export function clearHandlers() {
@@ -248,4 +267,5 @@ export function clearHandlers() {
   handlers.turn_update.length = 0;
   handlers.dm_drag.length = 0;
   handlers.initiative_roll.length = 0;
+  handlers.chat_message.length = 0;
 }
