@@ -3,34 +3,44 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>D&D Map – Prototype</title>
+  <title>D&D Crawler</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
-  <!-- Top bar: view toggle + info -->
-  <header id="header">
-    <div class="header-left">
-      <h1>D&D Map</h1>
-    </div>
-    <div class="header-center">
-      <button class="view-btn active" data-view="2d">2D Map</button>
-      <button class="view-btn" data-view="fp">First Person</button>
-      <button class="view-btn" data-view="split">Split View</button>
-    </div>
-    <div class="header-right">
-      <span class="controls-hint">WASD move · QE turn · Tab switch view · M minimap · 1-9 switch character</span>
-    </div>
-  </header>
+  <!-- Auth screen (login / register) -->
+  <div id="auth-container"></div>
 
-  <!-- Sidebar panels -->
-  <div id="toolbar"></div>
-  <div id="roster-container"></div>
+  <!-- Game lobby (create / join games) -->
+  <div id="lobby-container" style="display:none"></div>
 
-  <!-- Render area -->
-  <div id="viewport">
-    <canvas id="canvas-2d"></canvas>
-    <canvas id="canvas-fp"></canvas>
-    <canvas id="minimap"></canvas>
+  <!-- Game view (the actual game) -->
+  <div id="game-container" style="display:none">
+    <!-- Top bar: view toggle + info -->
+    <header id="header">
+      <div class="header-left">
+        <h1>D&D Crawler</h1>
+      </div>
+      <div class="header-center">
+        <button class="view-btn active" data-view="2d">2D Map</button>
+        <button class="view-btn" data-view="fp">First Person</button>
+        <button class="view-btn" data-view="split">Split View</button>
+      </div>
+      <div class="header-right">
+        <span class="controls-hint">WASD move · QE turn · Tab switch view · M minimap · 1-9 switch character</span>
+      </div>
+    </header>
+
+    <!-- Sidebar panels -->
+    <div id="toolbar"></div>
+    <div id="roster-container"></div>
+    <div id="turn-tracker-container"></div>
+
+    <!-- Render area -->
+    <div id="viewport">
+      <canvas id="canvas-2d"></canvas>
+      <canvas id="canvas-fp"></canvas>
+      <canvas id="minimap"></canvas>
+    </div>
   </div>
 
   <script type="module" src="/src/main.js"></script>

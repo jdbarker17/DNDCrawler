@@ -404,3 +404,726 @@ html, body {
   background: #3a3a3a;
   color: #fff;
 }
+
+/* ---- Roster: user info & ownership ---- */
+
+.roster-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #333;
+  margin-bottom: 2px;
+}
+
+.roster-role-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.roster-role-badge.dm {
+  background: #c9a84c;
+  color: #111;
+}
+
+.roster-role-badge.player {
+  background: #3498db;
+  color: #fff;
+}
+
+.roster-user-name {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.roster-you {
+  font-size: 10px;
+  color: #c9a84c;
+  font-weight: 400;
+}
+
+.roster-item.locked {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.roster-item.locked:hover {
+  background: transparent;
+}
+
+/* ---- Game container ---- */
+#game-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Auth Screen ---- */
+
+#auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.auth-card {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 40px 36px;
+  width: 360px;
+  max-width: 90vw;
+}
+
+.auth-logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: #c9a84c;
+  text-align: center;
+  margin-bottom: 24px;
+  letter-spacing: 1px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #333;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.auth-tab:hover {
+  color: #ddd;
+}
+
+.auth-tab.active {
+  color: #c9a84c;
+  border-bottom-color: #c9a84c;
+  font-weight: 600;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form input {
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #ddd;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.auth-form input:focus {
+  border-color: #c9a84c;
+}
+
+.auth-error {
+  color: #e74c3c;
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.auth-submit {
+  background: #c9a84c;
+  color: #111;
+  border: none;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.auth-submit:hover {
+  background: #dab85c;
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- Game Lobby ---- */
+
+#game-lobby {
+  position: fixed;
+  inset: 0;
+  background: #111;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.lobby-logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: #c9a84c;
+  letter-spacing: 1px;
+}
+
+.lobby-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lobby-username {
+  color: #aaa;
+  font-size: 14px;
+}
+
+.lobby-logout {
+  background: none;
+  border: 1px solid #555;
+  color: #aaa;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.lobby-logout:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.lobby-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  gap: 30px;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+  overflow-y: auto;
+}
+
+.lobby-create,
+.lobby-join {
+  width: 100%;
+}
+
+.lobby-create h2,
+.lobby-join h2 {
+  font-size: 18px;
+  color: #c9a84c;
+  margin-bottom: 8px;
+}
+
+.lobby-hint {
+  color: #888;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.lobby-create-form {
+  display: flex;
+  gap: 8px;
+}
+
+.lobby-create-form input {
+  flex: 1;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #ddd;
+  font-size: 14px;
+  outline: none;
+}
+
+.lobby-create-form input:focus {
+  border-color: #c9a84c;
+}
+
+.lobby-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.lobby-btn.primary {
+  background: #c9a84c;
+  color: #111;
+}
+
+.lobby-btn.primary:hover {
+  background: #dab85c;
+}
+
+.lobby-btn.secondary {
+  background: #2a2a2a;
+  color: #aaa;
+  border: 1px solid #444;
+  margin-top: 10px;
+}
+
+.lobby-btn.secondary:hover {
+  background: #333;
+  color: #fff;
+}
+
+.lobby-btn.small {
+  padding: 6px 14px;
+  font-size: 13px;
+  background: #c9a84c;
+  color: #111;
+  flex-shrink: 0;
+}
+
+.lobby-btn.small:hover {
+  background: #dab85c;
+}
+
+.lobby-divider {
+  width: 100%;
+  height: 1px;
+  background: #333;
+}
+
+.lobby-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lobby-game-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  transition: border-color 0.15s;
+}
+
+.lobby-game-item:hover {
+  border-color: #555;
+}
+
+.lobby-game-info {
+  flex: 1;
+}
+
+.lobby-game-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #eee;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lobby-game-meta {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
+.lobby-role {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.lobby-role.dm {
+  background: #c9a84c;
+  color: #111;
+}
+
+.lobby-role.player {
+  background: #3498db;
+  color: #fff;
+}
+
+.lobby-loading,
+.lobby-empty,
+.lobby-error-inline {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}
+
+.lobby-error-inline {
+  color: #e74c3c;
+}
+
+.lobby-error {
+  color: #e74c3c;
+  font-size: 13px;
+  text-align: center;
+  padding: 8px;
+}
+
+/* ---- Turn Tracker Panel ---- */
+
+#turn-tracker {
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-width: 200px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turn-tracker-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c9a84c;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.turn-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.turn-counter {
+  font-size: 12px;
+  color: #aaa;
+  font-weight: 600;
+}
+
+.turn-btn {
+  padding: 5px 12px;
+  border: 1px solid #555;
+  background: #2a2a2a;
+  color: #bbb;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  width: auto;
+}
+
+.turn-btn:hover:not(:disabled) {
+  background: #3a3a3a;
+  color: #fff;
+}
+
+.turn-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.turn-btn.start-turns,
+.turn-btn.end-turns {
+  width: 100%;
+  text-align: center;
+}
+
+.turn-btn.start-turns {
+  background: #c9a84c;
+  color: #111;
+  border-color: #c9a84c;
+  font-weight: 600;
+}
+
+.turn-btn.start-turns:hover {
+  background: #dab85c;
+}
+
+.turn-btn.end-turns {
+  background: #2a2a2a;
+  color: #e74c3c;
+  border-color: #555;
+}
+
+.turn-btn.end-turns:hover {
+  border-color: #e74c3c;
+}
+
+.turn-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.turn-order-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.turn-order-item.active-turn {
+  background: rgba(201, 168, 76, 0.2);
+  border-color: #c9a84c;
+}
+
+.turn-order-item.dragging {
+  opacity: 0.5;
+}
+
+.turn-order-item.drag-over {
+  border-color: #c9a84c;
+  background: rgba(201, 168, 76, 0.1);
+}
+
+.turn-drag-handle {
+  cursor: grab;
+  color: #555;
+  font-size: 14px;
+  letter-spacing: 2px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.turn-drag-handle:hover {
+  color: #c9a84c;
+}
+
+.turn-order-num {
+  font-size: 11px;
+  color: #666;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.turn-order-token {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.turn-order-name {
+  font-size: 13px;
+  color: #ddd;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turn-you {
+  font-size: 10px;
+  color: #c9a84c;
+  font-weight: 400;
+}
+
+.turn-your-turn {
+  background: rgba(201, 168, 76, 0.25);
+  border: 1px solid #c9a84c;
+  border-radius: 4px;
+  padding: 6px 10px;
+  text-align: center;
+  color: #c9a84c;
+  font-weight: 700;
+  font-size: 14px;
+  animation: pulse-turn 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-turn {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ---- Initiative Rolls ---- */
+
+.initiative-hint {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+  text-align: center;
+  padding: 2px 0;
+}
+
+.initiative-input {
+  width: 42px;
+  padding: 3px 4px;
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #c9a84c;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  flex-shrink: 0;
+  -moz-appearance: textfield;
+}
+
+.initiative-input::-webkit-inner-spin-button,
+.initiative-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.initiative-input:focus {
+  border-color: #c9a84c;
+  background: #222;
+}
+
+.initiative-input::placeholder {
+  color: #555;
+  font-weight: 400;
+}
+
+.initiative-display {
+  width: 42px;
+  padding: 3px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: #c9a84c;
+  flex-shrink: 0;
+}
+
+.turn-action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.turn-btn.sort-initiative {
+  width: 100%;
+  text-align: center;
+  background: #2a3a2a;
+  color: #2ecc71;
+  border-color: #2ecc71;
+  font-weight: 600;
+}
+
+.turn-btn.sort-initiative:hover:not(:disabled) {
+  background: #2ecc71;
+  color: #111;
+}
+
+.turn-btn.sort-initiative:disabled {
+  background: #2a2a2a;
+  color: #555;
+  border-color: #444;
+}
+
+/* ---- DM Toolbar Action Mode ---- */
+
+.dm-divider {
+  height: 1px;
+  background: #333;
+  margin: 4px 0;
+}
+
+.dm-action-toggle span {
+  color: #e67e22;
+  font-weight: 600;
+}
+
+.dm-drag-btn {
+  width: 100%;
+  text-align: center;
+}
+
+.dm-drag-btn.active {
+  background: #e67e22;
+  color: #111;
+  border-color: #e67e22;
+  font-weight: 600;
+}
+
+/* ---- Your Turn Banner (overlay) ---- */
+
+.your-turn-banner {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%) scale(0.8);
+  background: rgba(201, 168, 76, 0.95);
+  color: #111;
+  font-size: 28px;
+  font-weight: 800;
+  padding: 16px 40px;
+  border-radius: 12px;
+  z-index: 50;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  box-shadow: 0 4px 20px rgba(201, 168, 76, 0.4);
+}
+
+.your-turn-banner.show {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.your-turn-banner.fade-out {
+  opacity: 0;
+  transform: translateX(-50%) scale(0.9);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+/* ---- Turn Tracker Container positioning ---- */
+
+#turn-tracker-container {
+  position: absolute;
+  top: 52px;
+  left: 12px;
+  z-index: 19;
+}
+
+/* Shift turn tracker below the roster when both visible */
+#roster-container:not(:empty) ~ #turn-tracker-container {
+  top: auto;
+  bottom: 16px;
+}

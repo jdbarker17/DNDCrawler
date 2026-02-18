@@ -1,76 +1,432 @@
 /**
  * Main application entry point.
- * Wires together the map, players, both renderers, input, DM tools, and game loop.
+ * Handles auth flow, game lobby, then wires together the map, players,
+ * both renderers, input, DM tools, and game loop.
  */
 
 import { createDemoMap } from './engine/DemoMap.js';
+import { GameMap } from './engine/GameMap.js';
 import { Player } from './engine/Player.js';
 import { InputManager } from './engine/InputManager.js';
 import { MapRenderer2D } from './renderers/MapRenderer2D.js';
 import { RaycastRenderer } from './renderers/RaycastRenderer.js';
 import { DMTools } from './ui/DMTools.js';
 import { PlayerRoster } from './ui/PlayerRoster.js';
+import { TurnTracker } from './ui/TurnTracker.js';
+import { AuthScreen } from './ui/AuthScreen.js';
+import { GameLobby } from './ui/GameLobby.js';
+import {
+  getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
+} from './services/api.js';
+import * as socket from './services/socket.js';
 
-// --- Setup ---
-const gameMap = createDemoMap();
+// --- App state ---
+let currentUser = null;   // { id, username }
+let currentGameId = null;
+let currentRole = null;   // 'dm' | 'player'
+let gameMap = null;
 let players = [];
 let activePlayer = null;
+let authScreen = null;
+let gameLobby = null;
 
-const input = new InputManager();
+// --- DOM containers ---
+const authContainer = document.getElementById('auth-container');
+const lobbyContainer = document.getElementById('lobby-container');
+const gameContainer = document.getElementById('game-container');
 
-// Canvases
-const canvas2d = document.getElementById('canvas-2d');
-const canvasFP = document.getElementById('canvas-fp');
-
-// Renderers
-const renderer2d = new MapRenderer2D(canvas2d, gameMap);
-const rendererFP = new RaycastRenderer(canvasFP, gameMap);
-
-// DM Tools
-const dmTools = new DMTools(document.getElementById('toolbar'), gameMap, renderer2d);
-
-// Player Roster
-const roster = new PlayerRoster(
-  document.getElementById('roster-container'),
-  (player) => { activePlayer = player; },       // onSelect
-  (allPlayers) => { players = allPlayers; },     // onPlayersChange
-);
-
-// Seed initial party
-function seedParty() {
-  const starters = [
-    { name: 'Thorin', className: 'Fighter', color: '#e74c3c', token: '\u{1F6E1}\uFE0F', x: 2.5, y: 1.5 },
-    { name: 'Elara', className: 'Wizard', color: '#9b59b6', token: '\u{1FA84}', x: 3.5, y: 1.5 },
-    { name: 'Finn', className: 'Rogue', color: '#2ecc71', token: '\u{1F5E1}\uFE0F', x: 2.5, y: 2.5 },
-    { name: 'Sera', className: 'Cleric', color: '#f1c40f', token: '\u2728', x: 3.5, y: 2.5 },
-  ];
-  for (const s of starters) {
-    const p = new Player(s.x, s.y, 0);
-    p.name = s.name;
-    p.className = s.className;
-    p.color = s.color;
-    p.token = s.token;
-    roster.addPlayer(p);
+// --- Boot: check existing session ---
+function boot() {
+  const user = getCurrentUser();
+  if (user) {
+    currentUser = user;
+    showLobby();
+  } else {
+    showAuth();
   }
 }
-seedParty();
 
-// View state
-let viewMode = '2d'; // '2d' | 'fp' | 'split'
-let minimapEnabled = true;
-
-// --- View toggling ---
-const viewButtons = document.querySelectorAll('.view-btn');
-viewButtons.forEach(btn => {
-  btn.addEventListener('click', () => {
-    viewButtons.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    viewMode = btn.dataset.view;
-    updateCanvasVisibility();
+// --- Auth screen ---
+function showAuth() {
+  hideAll();
+  authContainer.style.display = 'block';
+  if (authScreen) authScreen.destroy();
+  authScreen = new AuthScreen(authContainer, (user) => {
+    currentUser = user;
+    showLobby();
   });
+}
+
+// --- Game lobby ---
+function showLobby() {
+  hideAll();
+  lobbyContainer.style.display = 'block';
+  if (gameLobby) gameLobby.destroy();
+  gameLobby = new GameLobby(
+    lobbyContainer,
+    currentUser,
+    (game) => {
+      currentGameId = game.id;
+      currentRole = game.role;
+      loadGame(game.id);
+    },
+    () => {
+      // Logout
+      logout();
+      currentUser = null;
+      showAuth();
+    }
+  );
+}
+
+// --- Load game and start ---
+async function loadGame(gameId) {
+  hideAll();
+  gameContainer.style.display = 'block';
+
+  try {
+    const state = await getGameState(gameId);
+    currentRole = state.my_role;
+
+    // Load map
+    if (state.map_data) {
+      gameMap = GameMap.fromJSON(state.map_data);
+    } else {
+      // New game – use demo map and save it
+      gameMap = createDemoMap();
+      if (currentRole === 'dm') {
+        saveMapData(gameId, gameMap.toJSON()).catch(() => {});
+      }
+    }
+
+    // Load characters
+    players = state.characters.map(c => Player.fromServerData(c));
+
+    // Select the user's first character, or first available
+    const myChar = players.find(p => p.ownerId === currentUser.id);
+    activePlayer = myChar || players[0] || null;
+
+    initGameUI();
+  } catch (err) {
+    console.error('Failed to load game:', err);
+    showLobby();
+  }
+}
+
+function hideAll() {
+  authContainer.style.display = 'none';
+  lobbyContainer.style.display = 'none';
+  gameContainer.style.display = 'none';
+  stopGameLoop();
+}
+
+// --- Handle auth expiry ---
+window.addEventListener('auth-expired', () => {
+  currentUser = null;
+  showAuth();
 });
 
+// ================================================================
+// GAME UI (everything below runs after auth + game selection)
+// ================================================================
+
+let input = null;
+let renderer2d = null;
+let rendererFP = null;
+let minimapRenderer = null;
+let dmTools = null;
+let roster = null;
+let turnTracker = null;
+let animFrameId = null;
+let saveTimer = 0;
+
+// --- Turn / Action Mode state ---
+let actionModeEnabled = false;
+let turnOrder = [];           // [characterId, ...]
+let turnActiveIndex = -1;     // index into turnOrder
+
+// --- DM Drag-and-drop state ---
+let dragTarget = null;
+let isDragging = false;
+let yourTurnBanner = null;
+let yourTurnTimeout = null;
+
+function initGameUI() {
+  // Clean up previous game session if any
+  cleanup();
+
+  input = new InputManager();
+
+  // Canvases
+  const canvas2d = document.getElementById('canvas-2d');
+  const canvasFP = document.getElementById('canvas-fp');
+
+  // Renderers
+  renderer2d = new MapRenderer2D(canvas2d, gameMap);
+  rendererFP = new RaycastRenderer(canvasFP, gameMap);
+
+  // DM Tools – pass role so it can hide for non-DMs
+  dmTools = new DMTools(
+    document.getElementById('toolbar'),
+    gameMap,
+    renderer2d,
+    currentRole,
+    (enabled) => onActionModeToggle(enabled)
+  );
+
+  // Player Roster – pass user/role info for ownership restrictions
+  roster = new PlayerRoster(
+    document.getElementById('roster-container'),
+    (player) => {
+      // Only allow selecting characters the user can control
+      if (canControl(player)) {
+        activePlayer = player;
+      }
+    },
+    (allPlayers) => { players = allPlayers; },
+    currentUser,
+    currentRole,
+    currentGameId
+  );
+
+  // Load existing players into roster
+  for (const p of players) {
+    roster.addPlayer(p, true); // true = skip server create (already exists)
+  }
+
+  // Auto-select own character
+  if (!activePlayer) {
+    activePlayer = players.find(p => p.ownerId === currentUser.id) || players[0] || null;
+  }
+  if (activePlayer) roster.selectPlayer(activePlayer.id);
+
+  // Turn Tracker (for both DM and players — DM gets controls, players see status)
+  const turnTrackerContainer = document.getElementById('turn-tracker-container');
+  turnTracker = new TurnTracker(
+    turnTrackerContainer,
+    players,
+    currentUser,
+    currentRole,
+    (turnState) => {
+      // DM changed turn state — update local + broadcast
+      applyTurnState(turnState);
+      socket.sendTurnUpdate(turnState);
+    },
+    (characterId, roll) => {
+      // Player or DM submitted an initiative roll — broadcast
+      socket.sendInitiativeRoll(characterId, roll);
+    }
+  );
+
+  // View state
+  viewMode = '2d';
+  minimapEnabled = true;
+
+  // Minimap
+  const minimapCanvas = document.getElementById('minimap');
+  if (minimapCanvas) {
+    minimapRenderer = new MapRenderer2D(minimapCanvas, gameMap);
+    minimapRenderer.tileSize = 10;
+    minimapRenderer.showGrid = false;
+    minimapRenderer.wallThickness = 1;
+  }
+
+  // Scroll zoom
+  renderer2d.setupScrollZoom();
+
+  // Resize
+  handleResize();
+  window.addEventListener('resize', handleResize);
+
+  // View toggling
+  setupViewToggling();
+
+  // Click handling for DM tools
+  canvas2d.addEventListener('click', onCanvasClick);
+
+  // DM drag-and-drop on 2D canvas
+  canvas2d.addEventListener('mousedown', onCanvasMouseDown);
+  canvas2d.addEventListener('mousemove', onCanvasMouseMove);
+  canvas2d.addEventListener('mouseup', onCanvasMouseUp);
+
+  // Mouse look for first-person
+  canvasFP.addEventListener('click', onFPClick);
+  document.addEventListener('pointerlockchange', onPointerLockChange);
+  document.addEventListener('mousemove', onMouseMove);
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', onKeyDown);
+
+  // Start game loop
+  lastTime = 0;
+  rosterRefreshTimer = 0;
+  saveTimer = 0;
+  animFrameId = requestAnimationFrame(gameLoop);
+
+  updateCanvasVisibility();
+
+  // --- WebSocket: connect and register handlers ---
+  socket.connect(currentGameId);
+
+  socket.onRemoteMove((msg) => {
+    const player = players.find(p => p.characterId === msg.characterId);
+    if (player) {
+      player.x = msg.x;
+      player.y = msg.y;
+      player.angle = msg.angle;
+    }
+  });
+
+  socket.onCharacterAdded((msg) => {
+    // Don't add if we already have this character
+    if (players.find(p => p.characterId === msg.character.id)) return;
+    const player = Player.fromServerData(msg.character);
+    if (roster) roster.addPlayer(player, true);
+    if (turnTracker) turnTracker.setPlayers(players);
+  });
+
+  socket.onCharacterRemoved((msg) => {
+    const player = players.find(p => p.characterId === msg.characterId);
+    if (player && roster) {
+      // Remove from local array directly (skip server delete — already deleted by the sender)
+      const idx = roster.players.findIndex(p => p.characterId === msg.characterId);
+      if (idx !== -1) {
+        const removed = roster.players.splice(idx, 1)[0];
+        if (roster.activePlayer === removed) {
+          roster.activePlayer = roster.players.find(p => roster._canControl(p)) || null;
+          roster.onSelect(roster.activePlayer);
+        }
+        roster.onPlayersChange(roster.players);
+        roster._renderList();
+      }
+    }
+    if (turnTracker) turnTracker.setPlayers(players);
+  });
+
+  // --- Turn update from server ---
+  socket.onTurnUpdate((msg) => {
+    applyTurnState(msg);
+    if (turnTracker) turnTracker.setTurnState(msg);
+    // If action mode was disabled remotely, update DMTools toggle
+    if (!msg.enabled && dmTools) {
+      dmTools.setActionMode(false);
+    }
+  });
+
+  // --- DM drag from server ---
+  socket.onDMDrag((msg) => {
+    const player = players.find(p => p.characterId === msg.characterId);
+    if (player) {
+      player.x = msg.x;
+      player.y = msg.y;
+    }
+  });
+
+  // --- Initiative roll from server ---
+  socket.onInitiativeRoll((msg) => {
+    if (turnTracker) {
+      turnTracker.setInitiativeRoll(msg.characterId, msg.roll);
+    }
+  });
+}
+
+function cleanup() {
+  if (animFrameId) cancelAnimationFrame(animFrameId);
+  animFrameId = null;
+  if (input) input.destroy();
+
+  // Disconnect WebSocket
+  socket.disconnect();
+  socket.clearHandlers();
+
+  // Remove event listeners
+  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('keydown', onKeyDown);
+  document.removeEventListener('pointerlockchange', onPointerLockChange);
+  document.removeEventListener('mousemove', onMouseMove);
+
+  const canvas2d = document.getElementById('canvas-2d');
+  const canvasFP = document.getElementById('canvas-fp');
+  if (canvas2d) {
+    canvas2d.removeEventListener('click', onCanvasClick);
+    canvas2d.removeEventListener('mousedown', onCanvasMouseDown);
+    canvas2d.removeEventListener('mousemove', onCanvasMouseMove);
+    canvas2d.removeEventListener('mouseup', onCanvasMouseUp);
+  }
+  if (canvasFP) canvasFP.removeEventListener('click', onFPClick);
+
+  // Clear roster, DM tools, and turn tracker containers
+  const toolbar = document.getElementById('toolbar');
+  const rosterEl = document.getElementById('roster-container');
+  const turnTrackerEl = document.getElementById('turn-tracker-container');
+  if (toolbar) toolbar.innerHTML = '';
+  if (rosterEl) rosterEl.innerHTML = '';
+  if (turnTrackerEl) turnTrackerEl.innerHTML = '';
+
+  // Clear "Your Turn" banner
+  if (yourTurnBanner && yourTurnBanner.parentNode) {
+    yourTurnBanner.parentNode.removeChild(yourTurnBanner);
+  }
+  yourTurnBanner = null;
+  if (yourTurnTimeout) clearTimeout(yourTurnTimeout);
+
+  // Reset turn state
+  actionModeEnabled = false;
+  turnOrder = [];
+  turnActiveIndex = -1;
+  dragTarget = null;
+  isDragging = false;
+
+  renderer2d = null;
+  rendererFP = null;
+  minimapRenderer = null;
+  dmTools = null;
+  roster = null;
+  turnTracker = null;
+}
+
+function stopGameLoop() {
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+}
+
+/** Check if the current user can control a given player character. */
+function canControl(player) {
+  if (!player) return false;
+  if (currentRole === 'dm') return true;            // DM always controls
+  if (player.ownerId !== currentUser.id) return false; // Must own character
+
+  // Action mode: only active-turn character can move
+  if (actionModeEnabled && turnOrder.length > 0 && turnActiveIndex >= 0) {
+    return player.characterId === turnOrder[turnActiveIndex];
+  }
+  return true;
+}
+
+// --- View state ---
+let viewMode = '2d';
+let minimapEnabled = true;
+let isPointerLocked = false;
+
+function setupViewToggling() {
+  const viewButtons = document.querySelectorAll('.view-btn');
+  viewButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      viewButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      viewMode = btn.dataset.view;
+      updateCanvasVisibility();
+    });
+  });
+}
+
 function updateCanvasVisibility() {
+  const canvas2d = document.getElementById('canvas-2d');
+  const canvasFP = document.getElementById('canvas-fp');
+  if (!canvas2d || !canvasFP) return;
+
   canvas2d.style.display = (viewMode === '2d' || viewMode === 'split') ? 'block' : 'none';
   canvasFP.style.display = (viewMode === 'fp' || viewMode === 'split') ? 'block' : 'none';
 
@@ -85,108 +441,258 @@ function updateCanvasVisibility() {
   handleResize();
 }
 
-// --- Minimap (drawn on a small offscreen canvas overlaid on the FP view) ---
-const minimapCanvas = document.getElementById('minimap');
-let minimapRenderer = null;
-if (minimapCanvas) {
-  minimapRenderer = new MapRenderer2D(minimapCanvas, gameMap);
-  minimapRenderer.tileSize = 10;
-  minimapRenderer.showGrid = false;
-  minimapRenderer.wallThickness = 1;
-}
-
-// --- Scroll zoom on 2D canvas ---
-renderer2d.setupScrollZoom();
-
-// --- Resize handling ---
 function handleResize() {
-  renderer2d.resize();
-  rendererFP.resize();
+  if (renderer2d) renderer2d.resize();
+  if (rendererFP) rendererFP.resize();
   if (minimapRenderer) minimapRenderer.resize();
 }
-window.addEventListener('resize', handleResize);
-handleResize();
 
-// --- Mouse / click handling for DM tools ---
-canvas2d.addEventListener('click', (e) => {
+// --- Event handlers ---
+
+function onCanvasClick(e) {
+  // Don't fire DM tool clicks when drag tool is active or we just dragged
+  if (isDragging) return;
+  if (dmTools && dmTools.activeTool === 'drag') return;
+
+  const canvas2d = document.getElementById('canvas-2d');
   const rect = canvas2d.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
-  dmTools.handleClick(x, y);
-});
+  if (dmTools) dmTools.handleClick(x, y);
+}
 
-// --- Mouse look for first-person view ---
-let isPointerLocked = false;
-
-canvasFP.addEventListener('click', () => {
+function onFPClick() {
+  const canvasFP = document.getElementById('canvas-fp');
   if (viewMode === 'fp' || viewMode === 'split') {
     canvasFP.requestPointerLock();
   }
-});
+}
 
-document.addEventListener('pointerlockchange', () => {
+function onPointerLockChange() {
+  const canvasFP = document.getElementById('canvas-fp');
   isPointerLocked = document.pointerLockElement === canvasFP;
-});
+}
 
-document.addEventListener('mousemove', (e) => {
-  if (isPointerLocked && activePlayer) {
+function onMouseMove(e) {
+  if (isPointerLocked && activePlayer && canControl(activePlayer)) {
     activePlayer.angle += e.movementX * 0.003;
+    // Broadcast angle change via WebSocket
+    if (activePlayer.characterId) {
+      socket.sendMove(activePlayer.characterId, activePlayer.x, activePlayer.y, activePlayer.angle);
+    }
   }
-});
+}
 
-// --- Keyboard shortcuts ---
-window.addEventListener('keydown', (e) => {
-  // Don't capture keys when typing in input fields
+function onKeyDown(e) {
   if (e.target.tagName === 'INPUT') return;
 
   if (e.code === 'Tab') {
     e.preventDefault();
-    // Cycle view modes
     const modes = ['2d', 'fp', 'split'];
     const idx = modes.indexOf(viewMode);
     viewMode = modes[(idx + 1) % modes.length];
-    viewButtons.forEach(b => {
+    document.querySelectorAll('.view-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.view === viewMode);
     });
     updateCanvasVisibility();
   }
+
   if (e.code === 'KeyM') {
     minimapEnabled = !minimapEnabled;
+    const minimapCanvas = document.getElementById('minimap');
     if (minimapCanvas) minimapCanvas.style.display = minimapEnabled ? 'block' : 'none';
   }
+
   if (e.code === 'Escape' && isPointerLocked) {
     document.exitPointerLock();
   }
 
-  // Number keys 1-9 to quick-switch active player
+  // Number keys 1-9 to quick-switch active player (respects ownership)
   if (e.code.startsWith('Digit')) {
     const num = parseInt(e.code.replace('Digit', ''), 10);
     if (num >= 1 && num <= players.length) {
-      roster.selectPlayer(players[num - 1].id);
+      const target = players[num - 1];
+      if (canControl(target)) {
+        if (roster) roster.selectPlayer(target.id);
+        activePlayer = target;
+      }
     }
   }
-});
+
+  // Ctrl+B to go back to lobby
+  if (e.code === 'KeyB' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    showLobby();
+  }
+}
+
+// --- Action Mode & Turn Management ---
+
+/** Called when DM toggles Action Mode on/off in DMTools. */
+function onActionModeToggle(enabled) {
+  actionModeEnabled = enabled;
+  if (turnTracker) {
+    turnTracker.enabled = enabled;
+    turnTracker.setVisible(enabled);
+    if (enabled) {
+      turnTracker.setPlayers(players);
+    } else {
+      // Disable action mode — clear turn state and broadcast
+      turnOrder = [];
+      turnActiveIndex = -1;
+      turnTracker.setTurnState({ enabled: false, order: [], activeIndex: -1 });
+      turnTracker.clearInitiativeRolls();
+      socket.sendTurnUpdate({ enabled: false, order: [], activeIndex: -1 });
+    }
+  }
+}
+
+/** Apply a turn state (from local DM action or remote WebSocket). */
+function applyTurnState(state) {
+  const wasMyTurn = isMyTurn();
+  actionModeEnabled = state.enabled;
+  turnOrder = state.order || [];
+  turnActiveIndex = typeof state.activeIndex === 'number' ? state.activeIndex : -1;
+
+  if (!actionModeEnabled) {
+    turnOrder = [];
+    turnActiveIndex = -1;
+  }
+
+  // Show "Your Turn!" notification if it just became this player's turn
+  if (actionModeEnabled && !wasMyTurn && isMyTurn()) {
+    showYourTurnBanner();
+  }
+}
+
+/** Check if it's the current user's turn. */
+function isMyTurn() {
+  if (!actionModeEnabled || turnOrder.length === 0 || turnActiveIndex < 0) return false;
+  const activeCharId = turnOrder[turnActiveIndex];
+  const activeP = players.find(p => p.characterId === activeCharId);
+  return activeP && activeP.ownerId === currentUser.id;
+}
+
+/** Show a "Your Turn!" banner that fades after 2 seconds. */
+function showYourTurnBanner() {
+  if (yourTurnTimeout) clearTimeout(yourTurnTimeout);
+  if (yourTurnBanner && yourTurnBanner.parentNode) {
+    yourTurnBanner.parentNode.removeChild(yourTurnBanner);
+  }
+
+  yourTurnBanner = document.createElement('div');
+  yourTurnBanner.className = 'your-turn-banner';
+  yourTurnBanner.textContent = 'Your Turn!';
+  const viewport = document.getElementById('viewport');
+  if (viewport) viewport.appendChild(yourTurnBanner);
+
+  // Trigger animation
+  requestAnimationFrame(() => {
+    yourTurnBanner.classList.add('show');
+  });
+
+  yourTurnTimeout = setTimeout(() => {
+    if (yourTurnBanner) {
+      yourTurnBanner.classList.remove('show');
+      yourTurnBanner.classList.add('fade-out');
+      setTimeout(() => {
+        if (yourTurnBanner && yourTurnBanner.parentNode) {
+          yourTurnBanner.parentNode.removeChild(yourTurnBanner);
+        }
+        yourTurnBanner = null;
+      }, 500);
+    }
+  }, 2000);
+}
+
+// --- DM Drag-and-Drop handlers ---
+
+function onCanvasMouseDown(e) {
+  if (currentRole !== 'dm') return;
+  if (e.button !== 0) return; // left click only
+
+  const canvas2d = document.getElementById('canvas-2d');
+  const rect = canvas2d.getBoundingClientRect();
+  const screenX = e.clientX - rect.left;
+  const screenY = e.clientY - rect.top;
+  const world = renderer2d.screenToWorld(screenX, screenY);
+
+  // Hit-test players
+  for (const player of players) {
+    const dx = world.x - player.x;
+    const dy = world.y - player.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.4) {
+      dragTarget = player;
+      isDragging = true;
+      e.preventDefault();
+      return;
+    }
+  }
+}
+
+function onCanvasMouseMove(e) {
+  if (!isDragging || !dragTarget || !renderer2d) return;
+
+  const canvas2d = document.getElementById('canvas-2d');
+  const rect = canvas2d.getBoundingClientRect();
+  const screenX = e.clientX - rect.left;
+  const screenY = e.clientY - rect.top;
+  const world = renderer2d.screenToWorld(screenX, screenY);
+
+  dragTarget.x = world.x;
+  dragTarget.y = world.y;
+
+  // Broadcast drag position
+  if (dragTarget.characterId) {
+    socket.sendDMDrag(dragTarget.characterId, world.x, world.y);
+  }
+}
+
+function onCanvasMouseUp() {
+  if (!isDragging || !dragTarget) {
+    isDragging = false;
+    dragTarget = null;
+    return;
+  }
+
+  // Save final position
+  if (dragTarget.characterId) {
+    updateCharacter(dragTarget.characterId, {
+      x: dragTarget.x,
+      y: dragTarget.y,
+      angle: dragTarget.angle,
+    }).catch(() => {});
+  }
+
+  isDragging = false;
+  dragTarget = null;
+}
 
 // --- Game loop ---
 let lastTime = 0;
 let rosterRefreshTimer = 0;
 
 function gameLoop(timestamp) {
-  const dt = Math.min((timestamp - lastTime) / 1000, 0.05); // cap delta at 50ms
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
   lastTime = timestamp;
 
-  // --- Input (applied to active player) ---
-  if (activePlayer) {
+  // --- Input (applied to active player if allowed) ---
+  if (activePlayer && canControl(activePlayer) && input) {
+    const prevX = activePlayer.x;
+    const prevY = activePlayer.y;
+    const prevAngle = activePlayer.angle;
+
     if (input.isDown('KeyW') || input.isDown('ArrowUp'))    activePlayer.move(1, dt, gameMap);
     if (input.isDown('KeyS') || input.isDown('ArrowDown'))  activePlayer.move(-1, dt, gameMap);
-    if (input.isDown('KeyA') || input.isDown('ArrowLeft'))   {
+    if (input.isDown('KeyA') || input.isDown('ArrowLeft'))  {
       if (viewMode === 'fp' || isPointerLocked) {
         activePlayer.strafe(-1, dt, gameMap);
       } else {
         activePlayer.turn(-1, dt);
       }
     }
-    if (input.isDown('KeyD') || input.isDown('ArrowRight'))  {
+    if (input.isDown('KeyD') || input.isDown('ArrowRight')) {
       if (viewMode === 'fp' || isPointerLocked) {
         activePlayer.strafe(1, dt, gameMap);
       } else {
@@ -195,13 +701,23 @@ function gameLoop(timestamp) {
     }
     if (input.isDown('KeyQ')) activePlayer.turn(-1, dt);
     if (input.isDown('KeyE')) activePlayer.turn(1, dt);
+
+    // Broadcast position if it changed
+    if (activePlayer.characterId &&
+        (activePlayer.x !== prevX || activePlayer.y !== prevY || activePlayer.angle !== prevAngle)) {
+      socket.sendMove(activePlayer.characterId, activePlayer.x, activePlayer.y, activePlayer.angle);
+    }
   }
 
   // --- Render ---
+  const turnActiveCharId = (actionModeEnabled && turnOrder.length > 0 && turnActiveIndex >= 0)
+    ? turnOrder[turnActiveIndex]
+    : null;
+
   if (activePlayer) {
     if (viewMode === '2d' || viewMode === 'split') {
       renderer2d.centreOn(activePlayer.x, activePlayer.y);
-      renderer2d.draw(players, activePlayer);
+      renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId);
     }
 
     if (viewMode === 'fp' || viewMode === 'split') {
@@ -209,7 +725,8 @@ function gameLoop(timestamp) {
     }
 
     // Minimap overlay (shown in FP mode)
-    if (minimapRenderer && minimapEnabled && (viewMode === 'fp')) {
+    const minimapCanvas = document.getElementById('minimap');
+    if (minimapRenderer && minimapEnabled && viewMode === 'fp') {
       minimapRenderer.centreOn(activePlayer.x, activePlayer.y);
       minimapRenderer.draw(players, activePlayer);
     }
@@ -218,16 +735,50 @@ function gameLoop(timestamp) {
     }
   }
 
-  // Refresh roster position display periodically (not every frame)
+  // Refresh roster position display periodically
   rosterRefreshTimer += dt;
   if (rosterRefreshTimer > 0.25) {
     rosterRefreshTimer = 0;
-    roster.refreshPositions();
+    if (roster) roster.refreshPositions();
   }
 
-  requestAnimationFrame(gameLoop);
+  // Auto-save character positions every 3 seconds
+  saveTimer += dt;
+  if (saveTimer > 3) {
+    saveTimer = 0;
+    autoSavePositions();
+  }
+
+  animFrameId = requestAnimationFrame(gameLoop);
 }
 
-// Kick off
-updateCanvasVisibility();
-requestAnimationFrame(gameLoop);
+/** Save all characters owned by the current user (or all if DM). */
+function autoSavePositions() {
+  for (const p of players) {
+    if (!p.characterId) continue;
+    if (currentRole === 'dm' || p.ownerId === currentUser.id) {
+      updateCharacter(p.characterId, {
+        x: p.x,
+        y: p.y,
+        angle: p.angle,
+      }).catch(() => {}); // silent fail on save
+    }
+  }
+}
+
+// Save on page unload
+window.addEventListener('beforeunload', () => {
+  for (const p of players) {
+    if (!p.characterId) continue;
+    if (currentRole === 'dm' || (currentUser && p.ownerId === currentUser.id)) {
+      const data = JSON.stringify({ x: p.x, y: p.y, angle: p.angle });
+      navigator.sendBeacon(
+        `/api/characters/${p.characterId}`,
+        new Blob([data], { type: 'application/json' })
+      );
+    }
+  }
+});
+
+// --- Kick off ---
+boot();

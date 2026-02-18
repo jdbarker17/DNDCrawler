@@ -20,6 +20,20 @@ export class Player {
     this.name = 'Player';
     this.token = '';     // emoji token displayed in first-person view
     this.className = ''; // e.g. "Fighter", "Wizard"
+    this.ownerId = null;     // user ID who owns this character
+    this.characterId = null; // database character ID (for save/update)
+  }
+
+  /** Create a Player from a server character record. */
+  static fromServerData(data) {
+    const p = new Player(data.x, data.y, data.angle);
+    p.name = data.name;
+    p.className = data.class_name || '';
+    p.color = data.color || '#e74c3c';
+    p.token = data.token || '';
+    p.ownerId = data.user_id;
+    p.characterId = data.id;
+    return p;
   }
 
   /** Attempt to move forward/backward, with wall collision. */

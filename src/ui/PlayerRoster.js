@@ -1,9 +1,13 @@
 /**
  * Player roster panel – lists all players, lets you select/control one,
  * add new characters, and remove them.
+ * Now supports ownership: players can only control their own characters,
+ * while the DM can control any character.
  */
 
 import { Player } from '../engine/Player.js';
+import { createCharacter, deleteCharacter } from '../services/api.js';
+import { sendCharacterAdded, sendCharacterRemoved } from '../services/socket.js';
 
 const PRESET_CHARACTERS = [
   { name: 'Thorin', className: 'Fighter', color: '#e74c3c', token: '\u{1F6E1}\uFE0F' },
@@ -19,15 +23,28 @@ export class PlayerRoster {
    * @param {HTMLElement} container – DOM element to mount into
    * @param {Function} onSelect – callback(player) when active player changes
    * @param {Function} onPlayersChange – callback(players[]) when roster changes
+   * @param {{ id: number, username: string }} currentUser
+   * @param {string} role – 'dm' | 'player'
+   * @param {number} gameId – current game ID for API calls
    */
-  constructor(container, onSelect, onPlayersChange) {
+  constructor(container, onSelect, onPlayersChange, currentUser, role, gameId) {
     this.container = container;
     this.onSelect = onSelect;
     this.onPlayersChange = onPlayersChange;
+    this.currentUser = currentUser;
+    this.role = role;
+    this.gameId = gameId;
     this.players = [];
     this.activePlayer = null;
 
     this._buildUI();
+  }
+
+  /** Check if current user can control a player. */
+  _canControl(player) {
+    if (!player) return false;
+    if (this.role === 'dm') return true;
+    return player.ownerId === this.currentUser.id;
   }
 
   _buildUI() {
@@ -35,6 +52,10 @@ export class PlayerRoster {
     this.panel.id = 'player-roster';
     this.panel.innerHTML = `
       <div class="roster-title">Party</div>
+      <div class="roster-user-info">
+        <span class="roster-role-badge ${this.role}">${this.role.toUpperCase()}</span>
+        <span class="roster-user-name">${this.currentUser.username}</span>
+      </div>
       <div class="roster-list" id="roster-list"></div>
       <button class="roster-add-btn" id="roster-add-btn">+ Add Character</button>
       <div class="roster-add-form" id="roster-add-form" style="display:none">
@@ -88,20 +109,35 @@ export class PlayerRoster {
     });
   }
 
-  _addPreset(preset) {
-    // Find a spawn point that doesn't overlap existing players
+  async _addPreset(preset) {
     const spawn = this._findSpawnPoint();
-    const player = new Player(spawn.x, spawn.y, 0);
-    player.name = preset.name;
-    player.className = preset.className;
-    player.color = preset.color;
-    player.token = preset.token;
-    this.addPlayer(player);
 
-    this.panel.querySelector('#roster-add-form').style.display = 'none';
+    try {
+      // Save to server
+      const serverChar = await createCharacter(this.gameId, {
+        name: preset.name,
+        class_name: preset.className,
+        color: preset.color,
+        token: preset.token,
+        x: spawn.x,
+        y: spawn.y,
+        angle: 0,
+      });
+
+      // Create local player from server data
+      const player = Player.fromServerData(serverChar);
+      this.addPlayer(player, true);
+
+      // Broadcast to other connected clients
+      sendCharacterAdded(serverChar);
+
+      this.panel.querySelector('#roster-add-form').style.display = 'none';
+    } catch (err) {
+      console.error('Failed to add preset character:', err);
+    }
   }
 
-  _addCustomPlayer() {
+  async _addCustomPlayer() {
     const nameInput = this.panel.querySelector('#new-player-name');
     const classInput = this.panel.querySelector('#new-player-class');
     const colorInput = this.panel.querySelector('#new-player-color');
@@ -113,17 +149,33 @@ export class PlayerRoster {
     }
 
     const spawn = this._findSpawnPoint();
-    const player = new Player(spawn.x, spawn.y, 0);
-    player.name = name;
-    player.className = classInput.value.trim();
-    player.color = colorInput.value;
-    player.token = '\u{1F9D1}';
-    this.addPlayer(player);
 
-    // Reset form
-    nameInput.value = '';
-    classInput.value = '';
-    this.panel.querySelector('#roster-add-form').style.display = 'none';
+    try {
+      // Save to server
+      const serverChar = await createCharacter(this.gameId, {
+        name,
+        class_name: classInput.value.trim(),
+        color: colorInput.value,
+        token: '\u{1F9D1}',
+        x: spawn.x,
+        y: spawn.y,
+        angle: 0,
+      });
+
+      // Create local player from server data
+      const player = Player.fromServerData(serverChar);
+      this.addPlayer(player, true);
+
+      // Broadcast to other connected clients
+      sendCharacterAdded(serverChar);
+
+      // Reset form
+      nameInput.value = '';
+      classInput.value = '';
+      this.panel.querySelector('#roster-add-form').style.display = 'none';
+    } catch (err) {
+      console.error('Failed to add character:', err);
+    }
   }
 
   _findSpawnPoint() {
@@ -137,9 +189,14 @@ export class PlayerRoster {
     };
   }
 
-  addPlayer(player) {
+  /**
+   * Add a player to the roster.
+   * @param {Player} player
+   * @param {boolean} skipCreate – true if already saved to server
+   */
+  addPlayer(player, skipCreate = false) {
     this.players.push(player);
-    if (!this.activePlayer) {
+    if (!this.activePlayer && this._canControl(player)) {
       this.activePlayer = player;
       this.onSelect(player);
     }
@@ -147,15 +204,32 @@ export class PlayerRoster {
     this._renderList();
   }
 
-  removePlayer(playerId) {
+  async removePlayer(playerId) {
     const idx = this.players.findIndex(p => p.id === playerId);
     if (idx === -1) return;
 
-    const removed = this.players.splice(idx, 1)[0];
+    const removed = this.players[idx];
 
-    // If we removed the active player, select the next one
+    // Check permission
+    if (!this._canControl(removed)) return;
+
+    // Delete from server
+    if (removed.characterId) {
+      try {
+        await deleteCharacter(removed.characterId);
+        // Broadcast removal to other connected clients
+        sendCharacterRemoved(removed.characterId);
+      } catch (err) {
+        console.error('Failed to delete character:', err);
+        return;
+      }
+    }
+
+    this.players.splice(idx, 1);
+
+    // If we removed the active player, select the next one we can control
     if (this.activePlayer === removed) {
-      this.activePlayer = this.players[0] || null;
+      this.activePlayer = this.players.find(p => this._canControl(p)) || null;
       this.onSelect(this.activePlayer);
     }
 
@@ -166,9 +240,13 @@ export class PlayerRoster {
   selectPlayer(playerId) {
     const player = this.players.find(p => p.id === playerId);
     if (!player) return;
-    this.activePlayer = player;
-    this.onSelect(player);
-    this._renderList();
+
+    // Only allow selecting controllable characters
+    if (this._canControl(player)) {
+      this.activePlayer = player;
+      this.onSelect(player);
+      this._renderList();
+    }
   }
 
   _renderList() {
@@ -177,28 +255,35 @@ export class PlayerRoster {
 
     for (const player of this.players) {
       const isActive = player === this.activePlayer;
+      const isOwn = player.ownerId === this.currentUser.id;
+      const canCtrl = this._canControl(player);
       const item = document.createElement('div');
-      item.className = `roster-item${isActive ? ' active' : ''}`;
+      item.className = `roster-item${isActive ? ' active' : ''}${!canCtrl ? ' locked' : ''}`;
       item.innerHTML = `
         <div class="roster-item-token" style="background:${player.color}">${player.token}</div>
         <div class="roster-item-info">
-          <div class="roster-item-name">${player.name}</div>
+          <div class="roster-item-name">${player.name}${isOwn ? ' <span class="roster-you">(you)</span>' : ''}</div>
           <div class="roster-item-class">${player.className || 'Adventurer'}</div>
         </div>
         <div class="roster-item-pos">(${Math.floor(player.x)},${Math.floor(player.y)})</div>
-        <button class="roster-item-remove" data-id="${player.id}" title="Remove">\u00D7</button>
+        ${canCtrl ? `<button class="roster-item-remove" data-id="${player.id}" title="Remove">\u00D7</button>` : ''}
       `;
 
-      // Click to select
+      // Click to select (only if controllable)
       item.addEventListener('click', (e) => {
         if (e.target.closest('.roster-item-remove')) return;
-        this.selectPlayer(player.id);
+        if (canCtrl) {
+          this.selectPlayer(player.id);
+        }
       });
 
-      // Remove button
-      item.querySelector('.roster-item-remove').addEventListener('click', () => {
-        this.removePlayer(player.id);
-      });
+      // Remove button (only shown for controllable characters)
+      const removeBtn = item.querySelector('.roster-item-remove');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => {
+          this.removePlayer(player.id);
+        });
+      }
 
       list.appendChild(item);
     }
@@ -206,7 +291,6 @@ export class PlayerRoster {
 
   /** Call periodically to update position display. */
   refreshPositions() {
-    const items = this.panel.querySelectorAll('.roster-item-pos');
     const playerNodes = this.panel.querySelectorAll('.roster-item');
     playerNodes.forEach((node, i) => {
       if (this.players[i]) {

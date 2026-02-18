@@ -1,6 +1,7 @@
 /**
  * DM map-editing toolbar.
  * Allows the DM to click on the 2D map to toggle walls and adjust cell properties.
+ * Only rendered for users with the 'dm' role.
  */
 
 import { WALL_N, WALL_S, WALL_E, WALL_W } from '../engine/GameMap.js';
@@ -10,14 +11,22 @@ export class DMTools {
    * @param {HTMLElement} container – DOM element to mount the toolbar into
    * @param {import('../engine/GameMap.js').GameMap} gameMap
    * @param {import('../renderers/MapRenderer2D.js').MapRenderer2D} renderer2d
+   * @param {string} role – 'dm' | 'player'
+   * @param {(enabled: boolean) => void} [onActionModeToggle] – callback when Action Mode is toggled
    */
-  constructor(container, gameMap, renderer2d) {
+  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null) {
     this.gameMap = gameMap;
     this.renderer2d = renderer2d;
     this.enabled = false;
-    this.activeTool = 'wall'; // 'wall' | 'light' | 'floor'
+    this.activeTool = 'wall'; // 'wall' | 'light' | 'floor' | 'drag'
+    this.role = role;
+    this.onActionModeToggle = onActionModeToggle;
+    this.actionModeEnabled = false;
 
-    this._buildUI(container);
+    // Only build UI for DM
+    if (this.role === 'dm') {
+      this._buildUI(container);
+    }
   }
 
   _buildUI(container) {
@@ -35,6 +44,12 @@ export class DMTools {
         <button class="dm-btn" data-tool="floor">Floor Color</button>
       </div>
       <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
+      <div class="dm-divider"></div>
+      <label class="dm-toggle dm-action-toggle">
+        <input type="checkbox" id="dm-action-mode-toggle">
+        <span>Action Mode</span>
+      </label>
+      <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
     `;
     container.appendChild(this.toolbar);
 
@@ -55,6 +70,32 @@ export class DMTools {
       });
     });
 
+    // Action Mode toggle
+    this.toolbar.querySelector('#dm-action-mode-toggle').addEventListener('change', (e) => {
+      this.actionModeEnabled = e.target.checked;
+      this.toolbar.querySelector('#dm-drag-btn').style.display = this.actionModeEnabled ? 'inline-block' : 'none';
+      if (this.onActionModeToggle) {
+        this.onActionModeToggle(this.actionModeEnabled);
+      }
+    });
+
+    // Drag Player button — toggles drag tool
+    this.toolbar.querySelector('#dm-drag-btn').addEventListener('click', () => {
+      const dragBtn = this.toolbar.querySelector('#dm-drag-btn');
+      const isDragActive = this.activeTool === 'drag';
+      if (isDragActive) {
+        // Deactivate drag tool
+        this.activeTool = 'wall';
+        dragBtn.classList.remove('active');
+      } else {
+        // Activate drag tool — deactivate edit tools
+        this.toolbar.querySelectorAll('.dm-btn').forEach(b => b.classList.remove('active'));
+        dragBtn.classList.add('active');
+        this.activeTool = 'drag';
+      }
+      this._updateHint();
+    });
+
     // Default: hidden
     this.toolbar.querySelector('#dm-tools-group').style.display = 'none';
     this.toolbar.querySelector('#dm-hint').style.display = 'none';
@@ -65,8 +106,11 @@ export class DMTools {
       wall: 'Click cell edges to toggle walls',
       light: 'Click cells to cycle light level',
       floor: 'Click cells to cycle floor color',
+      drag: 'Click and drag player tokens to move them',
     };
-    this.toolbar.querySelector('#dm-hint').textContent = hints[this.activeTool] || '';
+    if (this.toolbar) {
+      this.toolbar.querySelector('#dm-hint').textContent = hints[this.activeTool] || '';
+    }
   }
 
   /**
@@ -75,7 +119,7 @@ export class DMTools {
    * @param {number} screenY
    */
   handleClick(screenX, screenY) {
-    if (!this.enabled) return false;
+    if (!this.enabled || this.role !== 'dm') return false;
 
     const world = this.renderer2d.screenToWorld(screenX, screenY);
     const gridX = Math.floor(world.x);
@@ -121,6 +165,20 @@ export class DMTools {
     }
 
     return false;
+  }
+
+  /** Programmatically set the Action Mode toggle (e.g. from TurnTracker ending). */
+  setActionMode(enabled) {
+    this.actionModeEnabled = enabled;
+    if (!this.toolbar) return;
+    const toggle = this.toolbar.querySelector('#dm-action-mode-toggle');
+    if (toggle) toggle.checked = enabled;
+    const dragBtn = this.toolbar.querySelector('#dm-drag-btn');
+    if (dragBtn) dragBtn.style.display = enabled ? 'inline-block' : 'none';
+    if (!enabled && this.activeTool === 'drag') {
+      this.activeTool = 'wall';
+      if (dragBtn) dragBtn.classList.remove('active');
+    }
   }
 
   _mirrorWall(x, y, flag) {

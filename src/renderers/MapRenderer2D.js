@@ -51,8 +51,10 @@ export class MapRenderer2D {
    * Main draw call.
    * @param {import('../engine/Player.js').Player[]} players
    * @param {import('../engine/Player.js').Player} activePlayer – the one whose view we're rendering
+   * @param {boolean} [actionMode=false] – if true, dim non-active-turn players
+   * @param {number|null} [turnActiveCharId=null] – characterId of the active-turn player
    */
-  draw(players, activePlayer) {
+  draw(players, activePlayer, actionMode = false, turnActiveCharId = null) {
     const { ctx, gameMap, tileSize, camera } = this;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -146,14 +148,33 @@ export class MapRenderer2D {
       const px = player.x * ts;
       const py = player.y * ts;
       const r = ts * 0.3;
+      const isActiveTurn = actionMode && turnActiveCharId != null && player.characterId === turnActiveCharId;
+      const isDimmed = actionMode && turnActiveCharId != null && !isActiveTurn;
+
+      // Dim non-active players in action mode
+      if (isDimmed) ctx.globalAlpha = 0.4;
+
+      // Pulsing gold glow ring for active-turn player
+      if (isActiveTurn) {
+        const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.004);
+        ctx.save();
+        ctx.shadowColor = '#c9a84c';
+        ctx.shadowBlur = 12 * z * pulse;
+        ctx.beginPath();
+        ctx.arc(px, py, r + 4 * z, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(201, 168, 76, ${pulse})`;
+        ctx.lineWidth = 3 * z;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Token circle
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fillStyle = player.color;
       ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2 * z;
+      ctx.strokeStyle = isActiveTurn ? '#c9a84c' : '#fff';
+      ctx.lineWidth = isActiveTurn ? 3 * z : 2 * z;
       ctx.stroke();
 
       // Direction indicator
@@ -171,6 +192,9 @@ export class MapRenderer2D {
       ctx.font = `${10 * z}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(player.name, px, py - r - 6 * z);
+
+      // Reset alpha
+      if (isDimmed) ctx.globalAlpha = 1;
     }
 
     // --- FOV cone for active player ---
