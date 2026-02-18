@@ -145,9 +145,14 @@ let actionModeEnabled = false;
 let turnOrder = [];           // [characterId, ...]
 let turnActiveIndex = -1;     // index into turnOrder
 
-// --- DM Drag-and-drop state ---
+// --- Drag-and-drop state ---
 let dragTarget = null;
 let isDragging = false;
+// --- Map pan-drag state ---
+let isPanning = false;
+let panLastX = 0;
+let panLastY = 0;
+let didPan = false;  // true if a pan-drag occurred — suppresses the next click
 let yourTurnBanner = null;
 let yourTurnTimeout = null;
 
@@ -238,6 +243,13 @@ function initGameUI() {
   handleResize();
   window.addEventListener('resize', handleResize);
 
+  // Centre camera on the player's character (or map centre for DM)
+  if (activePlayer) {
+    renderer2d.centreOn(activePlayer.x, activePlayer.y);
+  } else {
+    renderer2d.centreOn(gameMap.width / 2, gameMap.height / 2);
+  }
+
   // View toggling
   setupViewToggling();
 
@@ -253,6 +265,10 @@ function initGameUI() {
   canvasFP.addEventListener('click', onFPClick);
   document.addEventListener('pointerlockchange', onPointerLockChange);
   document.addEventListener('mousemove', onMouseMove);
+
+  // Re-centre button
+  const recenterBtn = document.getElementById('recenter-btn');
+  if (recenterBtn) recenterBtn.addEventListener('click', recenterCamera);
 
   // Keyboard shortcuts
   window.addEventListener('keydown', onKeyDown);
@@ -355,6 +371,9 @@ function cleanup() {
   }
   if (canvasFP) canvasFP.removeEventListener('click', onFPClick);
 
+  const recenterBtn = document.getElementById('recenter-btn');
+  if (recenterBtn) recenterBtn.removeEventListener('click', recenterCamera);
+
   // Clear roster, DM tools, and turn tracker containers
   const toolbar = document.getElementById('toolbar');
   const rosterEl = document.getElementById('roster-container');
@@ -376,6 +395,8 @@ function cleanup() {
   turnActiveIndex = -1;
   dragTarget = null;
   isDragging = false;
+  isPanning = false;
+  didPan = false;
 
   renderer2d = null;
   rendererFP = null;
@@ -450,8 +471,9 @@ function handleResize() {
 // --- Event handlers ---
 
 function onCanvasClick(e) {
-  // Don't fire DM tool clicks when drag tool is active or we just dragged
+  // Don't fire DM tool clicks when drag tool is active, we just dragged, or we just panned
   if (isDragging) return;
+  if (didPan) { didPan = false; return; }
   if (dmTools && dmTools.activeTool === 'drag') return;
 
   const canvas2d = document.getElementById('canvas-2d');
@@ -501,6 +523,10 @@ function onKeyDown(e) {
     minimapEnabled = !minimapEnabled;
     const minimapCanvas = document.getElementById('minimap');
     if (minimapCanvas) minimapCanvas.style.display = minimapEnabled ? 'block' : 'none';
+  }
+
+  if (e.code === 'KeyC') {
+    recenterCamera();
   }
 
   if (e.code === 'Escape' && isPointerLocked) {
@@ -605,10 +631,18 @@ function showYourTurnBanner() {
   }, 2000);
 }
 
-// --- DM Drag-and-Drop handlers ---
+/** Re-centre the 2D camera on the active player (or first player for DM). */
+function recenterCamera() {
+  if (!renderer2d) return;
+  const target = activePlayer || players[0];
+  if (target) {
+    renderer2d.centreOn(target.x, target.y);
+  }
+}
+
+// --- Drag-and-Drop handlers ---
 
 function onCanvasMouseDown(e) {
-  if (currentRole !== 'dm') return;
   if (e.button !== 0) return; // left click only
 
   const canvas2d = document.getElementById('canvas-2d');
@@ -617,21 +651,40 @@ function onCanvasMouseDown(e) {
   const screenY = e.clientY - rect.top;
   const world = renderer2d.screenToWorld(screenX, screenY);
 
-  // Hit-test players
+  // Hit-test players — DM can drag any, players can drag their own
   for (const player of players) {
     const dx = world.x - player.x;
     const dy = world.y - player.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 0.4) {
+    if (dist < 0.4 && canControl(player)) {
       dragTarget = player;
       isDragging = true;
+      canvas2d.style.cursor = 'grabbing';
       e.preventDefault();
       return;
     }
   }
+
+  // No player hit — start panning the map
+  isPanning = true;
+  panLastX = e.clientX;
+  panLastY = e.clientY;
+  canvas2d.style.cursor = 'grab';
+  e.preventDefault();
 }
 
 function onCanvasMouseMove(e) {
+  // Map pan-drag
+  if (isPanning && renderer2d) {
+    const dx = e.clientX - panLastX;
+    const dy = e.clientY - panLastY;
+    if (dx !== 0 || dy !== 0) didPan = true;
+    renderer2d.panBy(-dx, -dy);
+    panLastX = e.clientX;
+    panLastY = e.clientY;
+    return;
+  }
+
   if (!isDragging || !dragTarget || !renderer2d) return;
 
   const canvas2d = document.getElementById('canvas-2d');
@@ -640,16 +693,34 @@ function onCanvasMouseMove(e) {
   const screenY = e.clientY - rect.top;
   const world = renderer2d.screenToWorld(screenX, screenY);
 
-  dragTarget.x = world.x;
-  dragTarget.y = world.y;
+  // Clamp to map bounds (keep a small margin so the token stays fully inside)
+  const margin = 0.3;
+  const clampedX = Math.max(margin, Math.min(gameMap.width - margin, world.x));
+  const clampedY = Math.max(margin, Math.min(gameMap.height - margin, world.y));
 
-  // Broadcast drag position
+  dragTarget.x = clampedX;
+  dragTarget.y = clampedY;
+
+  // Broadcast drag position — DM uses dm_drag, players use regular move
   if (dragTarget.characterId) {
-    socket.sendDMDrag(dragTarget.characterId, world.x, world.y);
+    if (currentRole === 'dm') {
+      socket.sendDMDrag(dragTarget.characterId, clampedX, clampedY);
+    } else {
+      socket.sendMove(dragTarget.characterId, clampedX, clampedY, dragTarget.angle);
+    }
   }
 }
 
 function onCanvasMouseUp() {
+  const canvas2d = document.getElementById('canvas-2d');
+
+  // End map pan
+  if (isPanning) {
+    isPanning = false;
+    if (canvas2d) canvas2d.style.cursor = '';
+    return;
+  }
+
   if (!isDragging || !dragTarget) {
     isDragging = false;
     dragTarget = null;
@@ -667,6 +738,7 @@ function onCanvasMouseUp() {
 
   isDragging = false;
   dragTarget = null;
+  if (canvas2d) canvas2d.style.cursor = '';
 }
 
 // --- Game loop ---
@@ -677,35 +749,64 @@ function gameLoop(timestamp) {
   const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
   lastTime = timestamp;
 
-  // --- Input (applied to active player if allowed) ---
-  if (activePlayer && canControl(activePlayer) && input) {
-    const prevX = activePlayer.x;
-    const prevY = activePlayer.y;
-    const prevAngle = activePlayer.angle;
+  // --- Input ---
+  if (input) {
+    // WASD pans the 2D camera, QE zooms in/out — for everyone
+    if (renderer2d && (viewMode === '2d' || viewMode === 'split')) {
+      const panSpeed = 400; // pixels per second
+      if (input.isDown('KeyW')) renderer2d.panBy(0, -panSpeed * dt);
+      if (input.isDown('KeyS')) renderer2d.panBy(0, panSpeed * dt);
+      if (input.isDown('KeyA')) renderer2d.panBy(-panSpeed * dt, 0);
+      if (input.isDown('KeyD')) renderer2d.panBy(panSpeed * dt, 0);
 
-    if (input.isDown('KeyW') || input.isDown('ArrowUp'))    activePlayer.move(1, dt, gameMap);
-    if (input.isDown('KeyS') || input.isDown('ArrowDown'))  activePlayer.move(-1, dt, gameMap);
-    if (input.isDown('KeyA') || input.isDown('ArrowLeft'))  {
-      if (viewMode === 'fp' || isPointerLocked) {
-        activePlayer.strafe(-1, dt, gameMap);
-      } else {
-        activePlayer.turn(-1, dt);
+      // QE zoom — zoom toward/away from canvas centre
+      const zoomRate = 1.5; // per second
+      if (input.isDown('KeyQ') || input.isDown('KeyE')) {
+        const dir = input.isDown('KeyQ') ? -1 : 1;
+        const oldZoom = renderer2d.camera.zoom;
+        const newZoom = Math.min(
+          renderer2d.zoomMax,
+          Math.max(renderer2d.zoomMin, oldZoom * (1 + dir * zoomRate * dt))
+        );
+        // Zoom toward canvas centre so the view stays centred
+        const rect = renderer2d.canvas.getBoundingClientRect();
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        const worldBefore = renderer2d.screenToWorld(cx, cy);
+        renderer2d.camera.zoom = newZoom;
+        const newTs = renderer2d.tileSize * newZoom;
+        renderer2d.camera.x = worldBefore.x * newTs - cx;
+        renderer2d.camera.y = worldBefore.y * newTs - cy;
       }
     }
-    if (input.isDown('KeyD') || input.isDown('ArrowRight')) {
-      if (viewMode === 'fp' || isPointerLocked) {
-        activePlayer.strafe(1, dt, gameMap);
-      } else {
-        activePlayer.turn(1, dt);
-      }
-    }
-    if (input.isDown('KeyQ')) activePlayer.turn(-1, dt);
-    if (input.isDown('KeyE')) activePlayer.turn(1, dt);
 
-    // Broadcast position if it changed
-    if (activePlayer.characterId &&
-        (activePlayer.x !== prevX || activePlayer.y !== prevY || activePlayer.angle !== prevAngle)) {
-      socket.sendMove(activePlayer.characterId, activePlayer.x, activePlayer.y, activePlayer.angle);
+    // Arrow keys move the active character (players only — DM has no character)
+    if (currentRole !== 'dm' && activePlayer && canControl(activePlayer)) {
+      const prevX = activePlayer.x;
+      const prevY = activePlayer.y;
+      const prevAngle = activePlayer.angle;
+
+      if (input.isDown('ArrowUp'))    activePlayer.move(1, dt, gameMap);
+      if (input.isDown('ArrowDown'))  activePlayer.move(-1, dt, gameMap);
+      if (input.isDown('ArrowLeft'))  {
+        if (viewMode === 'fp' || isPointerLocked) {
+          activePlayer.strafe(-1, dt, gameMap);
+        } else {
+          activePlayer.turn(-1, dt);
+        }
+      }
+      if (input.isDown('ArrowRight')) {
+        if (viewMode === 'fp' || isPointerLocked) {
+          activePlayer.strafe(1, dt, gameMap);
+        } else {
+          activePlayer.turn(1, dt);
+        }
+      }
+      // Broadcast position if it changed
+      if (activePlayer.characterId &&
+          (activePlayer.x !== prevX || activePlayer.y !== prevY || activePlayer.angle !== prevAngle)) {
+        socket.sendMove(activePlayer.characterId, activePlayer.x, activePlayer.y, activePlayer.angle);
+      }
     }
   }
 
@@ -716,7 +817,6 @@ function gameLoop(timestamp) {
 
   if (activePlayer) {
     if (viewMode === '2d' || viewMode === 'split') {
-      renderer2d.centreOn(activePlayer.x, activePlayer.y);
       renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId);
     }
 

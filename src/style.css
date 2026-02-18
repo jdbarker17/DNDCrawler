@@ -61,6 +61,12 @@ html, body {
   font-weight: 600;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .controls-hint {
   font-size: 11px;
   color: #666;
@@ -101,6 +107,25 @@ html, body {
   background: rgba(0, 0, 0, 0.7);
   display: none;
   z-index: 10;
+}
+
+/* ---- Re-centre Button ---- */
+#recenter-btn {
+  padding: 5px 12px;
+  border: 1px solid #444;
+  background: #222;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+#recenter-btn:hover {
+  background: #c9a84c;
+  color: #111;
+  border-color: #c9a84c;
 }
 
 /* ---- DM Toolbar ---- */

@@ -249,6 +249,16 @@ export class MapRenderer2D {
     }, { passive: false });
   }
 
+  /**
+   * Pan the camera by a pixel delta.
+   * @param {number} dx – pixels to shift horizontally
+   * @param {number} dy – pixels to shift vertically
+   */
+  panBy(dx, dy) {
+    this.camera.x += dx;
+    this.camera.y += dy;
+  }
+
   /** Convert canvas pixel coords to grid cell coords. */
   screenToGrid(screenX, screenY) {
     const z = this.camera.zoom;
