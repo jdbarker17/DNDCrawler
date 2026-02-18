@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D&D Map – Prototype</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- Top bar: view toggle + info -->
+  <header id="header">
+    <div class="header-left">
+      <h1>D&D Map</h1>
+    </div>
+    <div class="header-center">
+      <button class="view-btn active" data-view="2d">2D Map</button>
+      <button class="view-btn" data-view="fp">First Person</button>
+      <button class="view-btn" data-view="split">Split View</button>
+    </div>
+    <div class="header-right">
+      <span class="controls-hint">WASD move · QE turn · Tab switch view · M minimap · 1-9 switch character</span>
+    </div>
+  </header>
+
+  <!-- Sidebar panels -->
+  <div id="toolbar"></div>
+  <div id="roster-container"></div>
+
+  <!-- Render area -->
+  <div id="viewport">
+    <canvas id="canvas-2d"></canvas>
+    <canvas id="canvas-fp"></canvas>
+    <canvas id="minimap"></canvas>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
