@@ -379,7 +379,13 @@ function initGameUI() {
   // --- Turn update from server ---
   socket.onTurnUpdate((msg) => {
     applyTurnState(msg);
-    if (turnTracker) turnTracker.setTurnState(msg);
+    if (turnTracker) {
+      // When action mode is first enabled, ensure tracker has current player list
+      if (msg.enabled && !turnTracker.enabled) {
+        turnTracker.setPlayers(players);
+      }
+      turnTracker.setTurnState(msg);
+    }
     // If action mode was disabled remotely, update DMTools toggle
     if (!msg.enabled && dmTools) {
       dmTools.setActionMode(false);

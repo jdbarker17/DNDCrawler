@@ -431,23 +431,34 @@ export class TurnTracker {
 
   /**
    * Apply a sorted initiative order from a remote WebSocket update.
-   * Reorders the local player list to match the sorted character ID order.
+   * Rebuilds the local player list to match the sorted character ID order.
    * @param {number[]} sortedCharIds – character IDs in sorted order
    */
   applySortOrder(sortedCharIds) {
     if (!sortedCharIds || sortedCharIds.length === 0) return;
+    if (this.players.length === 0) return;
 
-    // Build a position map: characterId → desired index
-    const posMap = new Map();
-    sortedCharIds.forEach((id, idx) => posMap.set(id, idx));
+    // Rebuild the player list in the exact broadcast order
+    // Use direct lookup instead of Array.sort to avoid any comparison issues
+    const playerMap = new Map();
+    for (const p of this.players) {
+      playerMap.set(Number(p.characterId), p);
+    }
 
-    // Sort the player list to match the broadcast order
-    this.players.sort((a, b) => {
-      const posA = posMap.has(a.characterId) ? posMap.get(a.characterId) : 999;
-      const posB = posMap.has(b.characterId) ? posMap.get(b.characterId) : 999;
-      return posA - posB;
-    });
+    const reordered = [];
+    for (const id of sortedCharIds) {
+      const p = playerMap.get(Number(id));
+      if (p) {
+        reordered.push(p);
+        playerMap.delete(Number(id));
+      }
+    }
+    // Append any players not in the sorted list (shouldn't happen, but defensive)
+    for (const p of playerMap.values()) {
+      reordered.push(p);
+    }
 
+    this.players = reordered;
     this._render();
   }
 
