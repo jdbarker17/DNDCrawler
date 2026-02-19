@@ -12,11 +12,12 @@ export class GameLobby {
    * @param {Function} onGameSelected – callback({ id, role }) when a game is entered
    * @param {Function} onLogout – callback when user clicks logout
    */
-  constructor(container, user, onGameSelected, onLogout) {
+  constructor(container, user, onGameSelected, onLogout, onEditMap = null) {
     this.container = container;
     this.user = user;
     this.onGameSelected = onGameSelected;
     this.onLogout = onLogout;
+    this.onEditMap = onEditMap;
     this.games = [];
     this._build();
     this.refresh();
@@ -101,17 +102,28 @@ export class GameLobby {
         ? `<span class="lobby-role ${game.my_role}">${game.my_role.toUpperCase()}</span>`
         : '';
 
+      const showEditMap = game.my_role === 'dm' && this.onEditMap;
+
       item.innerHTML = `
         <div class="lobby-game-info">
           <div class="lobby-game-name">${game.name} ${roleLabel}</div>
           <div class="lobby-game-meta">DM: ${game.dm_name} · ${game.player_count} player${game.player_count !== 1 ? 's' : ''}</div>
         </div>
-        <button class="lobby-btn small">${game.my_role ? 'Enter' : 'Join'}</button>
+        <div class="lobby-game-actions">
+          ${showEditMap ? '<button class="lobby-btn small secondary lobby-edit-map-btn">Edit Map</button>' : ''}
+          <button class="lobby-btn small lobby-enter-btn">${game.my_role ? 'Enter' : 'Join'}</button>
+        </div>
       `;
 
-      item.querySelector('.lobby-btn').addEventListener('click', () => {
+      item.querySelector('.lobby-enter-btn').addEventListener('click', () => {
         this._enterGame(game);
       });
+
+      if (showEditMap) {
+        item.querySelector('.lobby-edit-map-btn').addEventListener('click', () => {
+          this.onEditMap(game);
+        });
+      }
 
       list.appendChild(item);
     }

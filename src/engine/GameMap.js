@@ -58,6 +58,13 @@ export class GameMap {
     this.cellSize = 1; // world-unit size of each cell (used by renderers)
     this.cells = [];
 
+    // Background image (DM reference overlay)
+    this.backgroundImage = null; // data URL string or null
+    this.bgOffsetX = 0;          // image offset in cells
+    this.bgOffsetY = 0;
+    this.bgScale = 1.0;          // scale factor relative to grid
+    this.bgOpacity = 0.5;        // overlay opacity 0..1
+
     for (let y = 0; y < height; y++) {
       const row = [];
       for (let x = 0; x < width; x++) {
@@ -115,6 +122,11 @@ export class GameMap {
     return {
       width: this.width,
       height: this.height,
+      backgroundImage: this.backgroundImage,
+      bgOffsetX: this.bgOffsetX,
+      bgOffsetY: this.bgOffsetY,
+      bgScale: this.bgScale,
+      bgOpacity: this.bgOpacity,
       cells: this.cells.map(row =>
         row.map(c => ({
           walls: c.walls,
@@ -132,6 +144,11 @@ export class GameMap {
 
   static fromJSON(data) {
     const map = new GameMap(data.width, data.height);
+    map.backgroundImage = data.backgroundImage || null;
+    map.bgOffsetX = data.bgOffsetX ?? 0;
+    map.bgOffsetY = data.bgOffsetY ?? 0;
+    map.bgScale = data.bgScale ?? 1.0;
+    map.bgOpacity = data.bgOpacity ?? 0.5;
     for (let y = 0; y < data.height; y++) {
       for (let x = 0; x < data.width; x++) {
         const src = data.cells[y][x];
