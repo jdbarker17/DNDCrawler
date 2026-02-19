@@ -190,13 +190,16 @@ export function sendInitiativeRoll(characterId, roll) {
 }
 
 /**
- * Send a chat message (group or DM).
+ * Send a chat message (group or DM), optionally with dice roll data.
  * @param {string} content – message text
  * @param {number|null} recipientId – null for group, userId for DM
+ * @param {object|null} roll – optional dice roll data { sides, count, results, total }
  */
-export function sendChatMessage(content, recipientId = null) {
+export function sendChatMessage(content, recipientId = null, roll = null) {
   if (!connected || !ws) return;
-  ws.send(JSON.stringify({ type: 'chat_message', content, recipientId }));
+  const msg = { type: 'chat_message', content, recipientId };
+  if (roll) msg.roll = roll;
+  ws.send(JSON.stringify(msg));
 }
 
 // --- Register event handlers ---

@@ -1424,3 +1424,229 @@ html, body {
 .chat-send-btn:hover {
   background: #dab85c;
 }
+
+/* ---- Dice Roll Button & Menu ---- */
+
+.chat-dice-wrapper {
+  position: relative;
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+
+.chat-dice-btn {
+  padding: 4px 8px;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.chat-dice-btn:hover {
+  background: #3a3a3a;
+  border-color: #c9a84c;
+}
+
+.chat-dice-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 6px;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px;
+  min-width: 200px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+}
+
+.chat-dice-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.chat-dice-preset {
+  padding: 5px 10px;
+  border: 1px solid #555;
+  background: #2a2a2a;
+  color: #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+  flex: 1;
+  min-width: 36px;
+  text-align: center;
+}
+
+.chat-dice-preset:hover {
+  background: #c9a84c;
+  color: #111;
+  border-color: #c9a84c;
+}
+
+.chat-dice-custom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-top: 1px solid #333;
+  padding-top: 8px;
+}
+
+.chat-dice-count,
+.chat-dice-sides {
+  width: 42px;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  color: #ddd;
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.chat-dice-count::-webkit-inner-spin-button,
+.chat-dice-count::-webkit-outer-spin-button,
+.chat-dice-sides::-webkit-inner-spin-button,
+.chat-dice-sides::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.chat-dice-count:focus,
+.chat-dice-sides:focus {
+  border-color: #c9a84c;
+}
+
+.chat-dice-d {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c9a84c;
+}
+
+.chat-dice-roll-btn {
+  padding: 4px 10px;
+  background: #c9a84c;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.chat-dice-roll-btn:hover {
+  background: #dab85c;
+}
+
+/* ---- Dice Roll Messages ---- */
+
+.chat-msg.dice-roll {
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  max-width: 95%;
+  align-self: center;
+}
+
+.chat-msg.dice-roll.own {
+  background: rgba(201, 168, 76, 0.12);
+}
+
+.dice-roll-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.dice-notation {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c9a84c;
+  letter-spacing: 0.5px;
+}
+
+.dice-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.dice-result {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  border: 2px solid #555;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #eee;
+  animation: dice-pop 0.4s ease-out both;
+}
+
+.dice-result.no-anim {
+  animation: none;
+}
+
+.dice-result:nth-child(2) { animation-delay: 0.1s; }
+.dice-result:nth-child(3) { animation-delay: 0.2s; }
+.dice-result:nth-child(4) { animation-delay: 0.3s; }
+.dice-result:nth-child(5) { animation-delay: 0.4s; }
+.dice-result:nth-child(6) { animation-delay: 0.5s; }
+.dice-result:nth-child(7) { animation-delay: 0.6s; }
+.dice-result:nth-child(8) { animation-delay: 0.7s; }
+.dice-result:nth-child(9) { animation-delay: 0.8s; }
+.dice-result:nth-child(10) { animation-delay: 0.9s; }
+
+/* Natural 20 — gold crit glow */
+.dice-result.crit {
+  border-color: #c9a84c;
+  color: #c9a84c;
+  box-shadow: 0 0 10px rgba(201, 168, 76, 0.5), 0 0 20px rgba(201, 168, 76, 0.2);
+  background: rgba(201, 168, 76, 0.1);
+}
+
+/* Natural 1 — red fumble */
+.dice-result.fumble {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.dice-total {
+  font-size: 12px;
+  font-weight: 700;
+  color: #aaa;
+  letter-spacing: 0.5px;
+}
+
+@keyframes dice-pop {
+  0% {
+    transform: scale(0) rotate(-180deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.2) rotate(10deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}

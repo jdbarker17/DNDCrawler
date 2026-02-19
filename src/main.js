@@ -239,8 +239,8 @@ function initGameUI() {
     document.getElementById('chat-container'),
     currentUser,
     gamePlayers,
-    (content, recipientId) => {
-      socket.sendChatMessage(content, recipientId);
+    (content, recipientId, roll) => {
+      socket.sendChatMessage(content, recipientId, roll);
     }
   );
 

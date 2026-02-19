@@ -2,6 +2,7 @@
  * Chat panel with Group chat and Direct Message tabs.
  * Collapsible, anchored to the bottom-right of the viewport.
  * Supports real-time messages via WebSocket + history loading from REST.
+ * Includes dice rolling with animated results broadcast to group chat.
  */
 
 export class ChatPanel {
@@ -9,7 +10,7 @@ export class ChatPanel {
    * @param {HTMLElement} container – DOM element to mount into
    * @param {{ id: number, username: string }} currentUser
    * @param {{ userId: number, username: string, role: string }[]} gamePlayers – all players in the game
-   * @param {(content: string, recipientId: number|null) => void} onSend – callback to send a message
+   * @param {(content: string, recipientId: number|null, roll?: object) => void} onSend – callback to send a message
    */
   constructor(container, currentUser, gamePlayers, onSend) {
     this.container = container;
@@ -51,6 +52,26 @@ export class ChatPanel {
         <div class="chat-messages"></div>
         <div class="chat-input-area">
           <textarea class="chat-input" placeholder="Type a message..." rows="1"></textarea>
+          <div class="chat-dice-wrapper">
+            <button class="chat-dice-btn" title="Roll dice">\u{1F3B2}</button>
+            <div class="chat-dice-menu" style="display:none">
+              <div class="chat-dice-presets">
+                <button class="chat-dice-preset" data-sides="4">d4</button>
+                <button class="chat-dice-preset" data-sides="6">d6</button>
+                <button class="chat-dice-preset" data-sides="8">d8</button>
+                <button class="chat-dice-preset" data-sides="10">d10</button>
+                <button class="chat-dice-preset" data-sides="12">d12</button>
+                <button class="chat-dice-preset" data-sides="20">d20</button>
+                <button class="chat-dice-preset" data-sides="100">d100</button>
+              </div>
+              <div class="chat-dice-custom">
+                <input type="number" class="chat-dice-count" min="1" max="10" value="1" />
+                <span class="chat-dice-d">d</span>
+                <input type="number" class="chat-dice-sides" min="2" max="100" value="20" />
+                <button class="chat-dice-roll-btn">Roll</button>
+              </div>
+            </div>
+          </div>
           <button class="chat-send-btn">Send</button>
         </div>
       </div>
@@ -67,6 +88,8 @@ export class ChatPanel {
     this.messagesEl = this.panel.querySelector('.chat-messages');
     this.inputEl = this.panel.querySelector('.chat-input');
     this.sendBtn = this.panel.querySelector('.chat-send-btn');
+    this.diceBtn = this.panel.querySelector('.chat-dice-btn');
+    this.diceMenu = this.panel.querySelector('.chat-dice-menu');
 
     // Events
     this.titleBar.addEventListener('click', (e) => {
@@ -98,6 +121,51 @@ export class ChatPanel {
       this.inputEl.style.height = 'auto';
       this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 80) + 'px';
     });
+
+    // --- Dice roll UI ---
+    this.diceBtn.addEventListener('click', () => {
+      const visible = this.diceMenu.style.display !== 'none';
+      this.diceMenu.style.display = visible ? 'none' : 'block';
+    });
+
+    // Preset dice buttons (d4, d6, d8, d10, d12, d20, d100)
+    for (const btn of this.panel.querySelectorAll('.chat-dice-preset')) {
+      btn.addEventListener('click', () => {
+        const sides = parseInt(btn.dataset.sides, 10);
+        this._rollDice(1, sides);
+        this.diceMenu.style.display = 'none';
+      });
+    }
+
+    // Custom roll button
+    this.panel.querySelector('.chat-dice-roll-btn').addEventListener('click', () => {
+      const countInput = this.panel.querySelector('.chat-dice-count');
+      const sidesInput = this.panel.querySelector('.chat-dice-sides');
+      const count = Math.max(1, Math.min(10, parseInt(countInput.value, 10) || 1));
+      const sides = Math.max(2, Math.min(100, parseInt(sidesInput.value, 10) || 20));
+      this._rollDice(count, sides);
+      this.diceMenu.style.display = 'none';
+    });
+
+    // Stop propagation on dice menu inputs so game controls don't fire
+    for (const input of this.panel.querySelectorAll('.chat-dice-count, .chat-dice-sides')) {
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.panel.querySelector('.chat-dice-roll-btn').click();
+        }
+      });
+      input.addEventListener('keyup', (e) => e.stopPropagation());
+    }
+
+    // Close dice menu when clicking outside
+    this._onDocClick = (e) => {
+      if (!this.panel.querySelector('.chat-dice-wrapper').contains(e.target)) {
+        this.diceMenu.style.display = 'none';
+      }
+    };
+    document.addEventListener('click', this._onDocClick);
 
     this._renderTabs();
     this._renderMessages();
@@ -157,17 +225,18 @@ export class ChatPanel {
 
     const msgs = this.conversations.get(this.activeTab) || [];
     for (const msg of msgs) {
-      this.messagesEl.appendChild(this._createMessageEl(msg));
+      this.messagesEl.appendChild(this._createMessageEl(msg, false));
     }
 
     this._scrollToBottom();
   }
 
-  _createMessageEl(msg) {
+  _createMessageEl(msg, animate = true) {
     const div = document.createElement('div');
     const isOwn = msg.senderId === this.currentUser.id;
     const isDM = msg.recipientId != null;
-    div.className = `chat-msg${isOwn ? ' own' : ''}${isDM ? ' dm' : ''}`;
+    const isRoll = !!msg.roll;
+    div.className = `chat-msg${isOwn ? ' own' : ''}${isDM ? ' dm' : ''}${isRoll ? ' dice-roll' : ''}`;
 
     const header = document.createElement('div');
     header.className = 'chat-msg-header';
@@ -189,13 +258,73 @@ export class ChatPanel {
     time.textContent = this._formatTime(msg.createdAt);
     header.appendChild(time);
 
-    const body = document.createElement('div');
-    body.className = 'chat-msg-body';
-    body.textContent = msg.content;
-
     div.appendChild(header);
-    div.appendChild(body);
+
+    if (isRoll) {
+      // Rich dice roll rendering
+      const rollBody = this._createRollBody(msg.roll, animate);
+      div.appendChild(rollBody);
+    } else {
+      // Normal text message
+      const body = document.createElement('div');
+      body.className = 'chat-msg-body';
+      body.textContent = msg.content;
+      div.appendChild(body);
+    }
+
     return div;
+  }
+
+  /**
+   * Create the rich dice roll body element.
+   */
+  _createRollBody(roll, animate) {
+    const body = document.createElement('div');
+    body.className = 'chat-msg-body dice-roll-body';
+
+    // Notation line: 🎲 1d20
+    const notation = document.createElement('div');
+    notation.className = 'dice-notation';
+    notation.textContent = `\u{1F3B2} ${roll.count}d${roll.sides}`;
+    body.appendChild(notation);
+
+    // Dice results row
+    const resultsRow = document.createElement('div');
+    resultsRow.className = 'dice-results';
+
+    for (let i = 0; i < roll.results.length; i++) {
+      const val = roll.results[i];
+      const die = document.createElement('span');
+      die.className = 'dice-result';
+
+      // Crit / fumble highlighting for d20
+      if (roll.sides === 20 && roll.count === 1) {
+        if (val === 20) die.classList.add('crit');
+        else if (val === 1) die.classList.add('fumble');
+      }
+
+      // Stagger animation delay
+      if (animate) {
+        die.style.animationDelay = `${i * 0.1}s`;
+      } else {
+        die.classList.add('no-anim');
+      }
+
+      die.textContent = val;
+      resultsRow.appendChild(die);
+    }
+
+    body.appendChild(resultsRow);
+
+    // Total line (show for multi-die rolls)
+    if (roll.count > 1) {
+      const total = document.createElement('div');
+      total.className = 'dice-total';
+      total.textContent = `Total: ${roll.total}`;
+      body.appendChild(total);
+    }
+
+    return body;
   }
 
   _formatTime(isoStr) {
@@ -242,6 +371,45 @@ export class ChatPanel {
     this.inputEl.value = '';
     this.inputEl.style.height = 'auto';
     this.inputEl.focus();
+  }
+
+  /**
+   * Roll dice and broadcast result to group chat.
+   * @param {number} count – number of dice
+   * @param {number} sides – sides per die
+   */
+  _rollDice(count, sides) {
+    const results = [];
+    for (let i = 0; i < count; i++) {
+      results.push(Math.floor(Math.random() * sides) + 1);
+    }
+    const total = results.reduce((a, b) => a + b, 0);
+    const notation = `${count}d${sides}`;
+    const content = `rolled ${notation}: [${results.join(', ')}] = ${total}`;
+    const roll = { sides, count, results, total };
+
+    // Optimistically add locally
+    const localMsg = {
+      id: null,
+      senderId: this.currentUser.id,
+      senderName: this.currentUser.username,
+      recipientId: null, // Always group
+      content,
+      roll,
+      createdAt: new Date().toISOString(),
+      _local: true,
+    };
+
+    // Switch to group tab so user sees the roll
+    if (this.activeTab !== 'group') {
+      this.activeTab = 'group';
+      this.unread.set('group', 0);
+      this._renderTabs();
+      this._renderMessages();
+    }
+
+    this.addMessage(localMsg);
+    this.onSend(content, null, roll);
   }
 
   /**
@@ -344,6 +512,7 @@ export class ChatPanel {
   }
 
   destroy() {
+    document.removeEventListener('click', this._onDocClick);
     this.container.innerHTML = '';
   }
 }

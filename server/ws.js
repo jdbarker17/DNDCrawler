@@ -215,6 +215,16 @@ function handleChatMessage(client, msg) {
 
   const recipientId = typeof msg.recipientId === 'number' ? msg.recipientId : null;
 
+  // Validate optional roll data
+  let roll = null;
+  if (msg.roll && typeof msg.roll === 'object') {
+    const { sides, count, results, total } = msg.roll;
+    if (typeof sides === 'number' && typeof count === 'number'
+        && Array.isArray(results) && typeof total === 'number') {
+      roll = { sides, count, results, total };
+    }
+  }
+
   // Persist to database
   const result = db.prepare(
     'INSERT INTO messages (game_id, sender_id, sender_name, recipient_id, content) VALUES (?, ?, ?, ?, ?)'
@@ -227,6 +237,7 @@ function handleChatMessage(client, msg) {
     senderName: client.username,
     recipientId,
     content,
+    roll,
     createdAt: new Date().toISOString(),
   };
 
