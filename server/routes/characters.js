@@ -14,7 +14,7 @@ router.use(authenticateToken);
 /**
  * POST /api/games/:gameId/characters
  * Create a character in a game.
- * Body: { name, class_name, color, token, x, y, angle }
+ * Body: { name, class_name, color, token, x, y, angle, speed }
  */
 router.post('/games/:gameId/characters', (req, res) => {
   const gameId = parseInt(req.params.gameId, 10);
@@ -34,15 +34,15 @@ router.post('/games/:gameId/characters', (req, res) => {
     return res.status(403).json({ error: 'You are not a member of this game' });
   }
 
-  const { name, class_name, color, token, x, y, angle } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Character name is required' });
   }
 
   const result = db.prepare(`
-    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle, speed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.user.id,
     gameId,
@@ -52,7 +52,8 @@ router.post('/games/:gameId/characters', (req, res) => {
     token || '',
     x ?? 2.5,
     y ?? 1.5,
-    angle ?? 0
+    angle ?? 0,
+    speed ?? 30
   );
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(result.lastInsertRowid);
@@ -82,7 +83,7 @@ router.put('/characters/:id', (req, res) => {
     return res.status(403).json({ error: 'Not authorized to update this character' });
   }
 
-  const { name, class_name, color, token, x, y, angle } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed } = req.body;
 
   db.prepare(`
     UPDATE characters SET
@@ -92,7 +93,8 @@ router.put('/characters/:id', (req, res) => {
       token = COALESCE(?, token),
       x = COALESCE(?, x),
       y = COALESCE(?, y),
-      angle = COALESCE(?, angle)
+      angle = COALESCE(?, angle),
+      speed = COALESCE(?, speed)
     WHERE id = ?
   `).run(
     name ?? null,
@@ -102,6 +104,7 @@ router.put('/characters/:id', (req, res) => {
     x ?? null,
     y ?? null,
     angle ?? null,
+    speed ?? null,
     charId
   );
 

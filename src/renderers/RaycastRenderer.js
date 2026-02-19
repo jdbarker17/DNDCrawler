@@ -6,6 +6,14 @@
 
 import { WALL_N, WALL_S, WALL_E, WALL_W } from '../engine/GameMap.js';
 
+/** Parse a hex colour string (#rrggbb) to { r, g, b }. */
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return { r, g, b };
+}
+
 export class RaycastRenderer {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -45,8 +53,10 @@ export class RaycastRenderer {
    * Main draw call.
    * @param {import('../engine/Player.js').Player} player – the viewer
    * @param {import('../engine/Player.js').Player[]} allPlayers – all players on the map
+   * @param {object[]} [movementDataList=[]] – array of movement data entries for range rings
+   * @param {object|null} [primaryMovementData=null] – the active turn character's data (for HUD bar)
    */
-  draw(player, allPlayers = []) {
+  draw(player, allPlayers = [], movementDataList = [], primaryMovementData = null) {
     const { ctx, gameMap, renderWidth, renderHeight, fov, maxDepth } = this;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -120,11 +130,32 @@ export class RaycastRenderer {
     // --- Draw sprite objects and other players in view ---
     this._drawSprites(player, allPlayers, w, h, halfFov, depthBuffer);
 
+    // --- Movement range rings on the floor (one per visible character) ---
+    for (const movementData of movementDataList) {
+      if (!movementData || movementData.totalCells <= 0) continue;
+      const startX = movementData.startX ?? player.x;
+      const startY = movementData.startY ?? player.y;
+      const isOver = movementData.overBudget || false;
+      const playerColor = movementData.playerColor || '#2ecc71';
+      this._drawMovementRing(player, w, h, halfFov, movementData.totalCells, depthBuffer, startX, startY, isOver, playerColor);
+
+      // Draw breadcrumb path projected onto the floor
+      const crumbs = movementData.breadcrumbs;
+      if (crumbs && crumbs.length > 1) {
+        this._drawBreadcrumbPath(player, w, h, halfFov, depthBuffer, crumbs, isOver, playerColor);
+      }
+    }
+
     // --- Overlay: subtle vignette ---
     this._drawVignette(ctx, w, h);
 
     // --- HUD compass ---
     this._drawCompass(ctx, w, h, player.angle);
+
+    // --- HUD movement bar (only for the primary/active turn character) ---
+    if (primaryMovementData) {
+      this._drawMovementHUD(ctx, w, h, primaryMovementData.movedFeet ?? 0, primaryMovementData.totalFeet, primaryMovementData.overBudget, primaryMovementData.playerColor);
+    }
   }
 
   /**
@@ -351,6 +382,194 @@ export class RaycastRenderer {
         ctx.globalAlpha = 1;
       }
     }
+  }
+
+  /**
+   * Draw a projected ring on the ground showing movement range.
+   * The ring is centred at (centreX, centreY) — the turn start position —
+   * not at the viewer's current position.
+   */
+  _drawMovementRing(viewer, screenW, screenH, halfFov, radiusCells, depthBuffer, centreX, centreY, isOver = false, playerColor = '#2ecc71') {
+    const { ctx } = this;
+    const projDist = screenH / (2 * Math.tan(halfFov));
+    const segments = 64;
+    const points = [];
+
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      // Circle points are around the turn start position, not the viewer
+      const wx = centreX + Math.cos(angle) * radiusCells;
+      const wy = centreY + Math.sin(angle) * radiusCells;
+
+      // Vector from viewer to this ring point
+      const dx = wx - viewer.x;
+      const dy = wy - viewer.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      let relAngle = Math.atan2(dy, dx) - viewer.angle;
+      while (relAngle > Math.PI) relAngle -= 2 * Math.PI;
+      while (relAngle < -Math.PI) relAngle += 2 * Math.PI;
+
+      const perpDist = dist * Math.cos(relAngle);
+      if (perpDist <= 0.1) continue;
+
+      const screenX = (0.5 + relAngle / (halfFov * 2)) * screenW;
+      // Floor at ground level (camera height = 0.5 * wallHeight)
+      const screenY = screenH / 2 + (0.5 * this.wallHeight / perpDist) * projDist;
+
+      // Depth test against wall buffer
+      const col = Math.floor(screenX);
+      const visible = col >= 0 && col < depthBuffer.length && perpDist < depthBuffer[col];
+
+      points.push({ screenX, screenY, visible, perpDist });
+    }
+
+    // Draw connected segments
+    const overRgb = { r: 231, g: 76, b: 60 };
+    const ringRgb = isOver ? overRgb : hexToRgb(playerColor);
+    ctx.save();
+    ctx.strokeStyle = `rgba(${ringRgb.r}, ${ringRgb.g}, ${ringRgb.b}, 0.5)`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+
+    ctx.beginPath();
+    let penDown = false;
+    for (const pt of points) {
+      if (pt.visible && pt.screenX >= -50 && pt.screenX <= screenW + 50) {
+        if (!penDown) {
+          ctx.moveTo(pt.screenX, pt.screenY);
+          penDown = true;
+        } else {
+          ctx.lineTo(pt.screenX, pt.screenY);
+        }
+      } else {
+        penDown = false;
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  /**
+   * Draw breadcrumb path projected onto the ground plane.
+   */
+  _drawBreadcrumbPath(viewer, screenW, screenH, halfFov, depthBuffer, crumbs, isOver, playerColor = '#2ecc71') {
+    const { ctx } = this;
+    const projDist = screenH / (2 * Math.tan(halfFov));
+    const projected = [];
+
+    for (const pt of crumbs) {
+      const dx = pt.x - viewer.x;
+      const dy = pt.y - viewer.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 0.05) continue; // too close to viewer
+
+      let relAngle = Math.atan2(dy, dx) - viewer.angle;
+      while (relAngle > Math.PI) relAngle -= 2 * Math.PI;
+      while (relAngle < -Math.PI) relAngle += 2 * Math.PI;
+
+      const perpDist = dist * Math.cos(relAngle);
+      if (perpDist <= 0.1) continue;
+
+      const screenX = (0.5 + relAngle / (halfFov * 2)) * screenW;
+      const screenY = screenH / 2 + (0.5 * this.wallHeight / perpDist) * projDist;
+
+      // Depth test
+      const col = Math.floor(screenX);
+      const visible = col >= 0 && col < depthBuffer.length && perpDist < depthBuffer[col];
+
+      projected.push({ screenX, screenY, visible, perpDist });
+    }
+
+    if (projected.length < 2) return;
+
+    // Draw path line
+    const overRgbP = { r: 231, g: 76, b: 60 };
+    const pathRgb = isOver ? overRgbP : hexToRgb(playerColor);
+    ctx.save();
+    ctx.strokeStyle = `rgba(${pathRgb.r}, ${pathRgb.g}, ${pathRgb.b}, 0.6)`;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    let penDown = false;
+    for (const pt of projected) {
+      if (pt.visible && pt.screenX >= -50 && pt.screenX <= screenW + 50) {
+        if (!penDown) {
+          ctx.moveTo(pt.screenX, pt.screenY);
+          penDown = true;
+        } else {
+          ctx.lineTo(pt.screenX, pt.screenY);
+        }
+      } else {
+        penDown = false;
+      }
+    }
+    ctx.stroke();
+
+    // Draw dots at intervals
+    for (let i = 0; i < projected.length; i++) {
+      if ((i === 0 || i === projected.length - 1 || i % 3 === 0) && projected[i].visible) {
+        const pt = projected[i];
+        const dotSize = Math.max(1.5, 3 / pt.perpDist);
+        ctx.beginPath();
+        ctx.arc(pt.screenX, pt.screenY, dotSize, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${pathRgb.r}, ${pathRgb.g}, ${pathRgb.b}, 0.8)`;
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw a HUD movement bar at the bottom of the screen.
+   * Shows distance moved vs total budget. Turns red when over budget.
+   */
+  _drawMovementHUD(ctx, w, h, movedFeet, totalFeet, overBudget = false, playerColor = '#2ecc71') {
+    if (totalFeet <= 0) return;
+
+    const barW = 120;
+    const barH = 8;
+    const x = w / 2 - barW / 2;
+    const y = h - 30;
+    // Fill shows how much has been used (not remaining)
+    const pct = Math.min(1, movedFeet / totalFeet);
+
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+
+    // Background bar
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, barH, 4);
+    ctx.fill();
+
+    // Fill bar — player colour when within budget, orange when getting low, red when over
+    const fillColor = overBudget ? '#e74c3c' : (pct > 0.7 ? '#e67e22' : playerColor);
+    ctx.fillStyle = fillColor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW * pct, barH, 4);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, barH, 4);
+    ctx.stroke();
+
+    // Text label
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = overBudget ? '#e74c3c' : playerColor;
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`${movedFeet}ft / ${totalFeet}ft`, w / 2, y - 4);
+
+    ctx.restore();
   }
 
   /** Shade a hex colour by a light factor, blending toward fog colour. */

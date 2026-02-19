@@ -138,8 +138,13 @@ export function initWebSocket(server) {
         };
         // Store on room so new joiners get current state
         roomTurnState.set(client.gameId, turnState);
+        // Include sorted player order if present (from DM initiative sort)
+        const broadcast = { type: 'turn_update', ...turnState };
+        if (Array.isArray(msg.sortedPlayerOrder)) {
+          broadcast.sortedPlayerOrder = msg.sortedPlayerOrder;
+        }
         // Broadcast to ALL clients in the room (including sender for confirmation)
-        broadcastToAll(client.gameId, { type: 'turn_update', ...turnState });
+        broadcastToAll(client.gameId, broadcast);
         return;
       }
 
@@ -159,6 +164,14 @@ export function initWebSocket(server) {
           roll: typeof roll === 'number' ? roll : null,
           userId: client.userId,
         });
+        return;
+      }
+
+      // --- Initiative sort (DM only) ---
+      if (msg.type === 'initiative_sort') {
+        if (client.role !== 'dm') return; // only DM can sort initiative
+        const sortedCharIds = Array.isArray(msg.sortedCharIds) ? msg.sortedCharIds : [];
+        broadcastToAll(client.gameId, { type: 'initiative_sort', sortedCharIds });
         return;
       }
 

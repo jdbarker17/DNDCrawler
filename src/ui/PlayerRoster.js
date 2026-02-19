@@ -6,16 +6,16 @@
  */
 
 import { Player } from '../engine/Player.js';
-import { createCharacter, deleteCharacter } from '../services/api.js';
+import { createCharacter, deleteCharacter, updateCharacter } from '../services/api.js';
 import { sendCharacterAdded, sendCharacterRemoved } from '../services/socket.js';
 
 const PRESET_CHARACTERS = [
-  { name: 'Thorin', className: 'Fighter', color: '#e74c3c', token: '\u{1F6E1}\uFE0F' },
-  { name: 'Elara', className: 'Wizard', color: '#9b59b6', token: '\u{1FA84}' },
-  { name: 'Finn', className: 'Rogue', color: '#2ecc71', token: '\u{1F5E1}\uFE0F' },
-  { name: 'Sera', className: 'Cleric', color: '#f1c40f', token: '\u2728' },
-  { name: 'Brok', className: 'Barbarian', color: '#e67e22', token: '\u{1FA93}' },
-  { name: 'Lyra', className: 'Ranger', color: '#1abc9c', token: '\u{1F3F9}' },
+  { name: 'Thorin', className: 'Fighter', color: '#e74c3c', token: '\u{1F6E1}\uFE0F', speed: 30 },
+  { name: 'Elara', className: 'Wizard', color: '#9b59b6', token: '\u{1FA84}', speed: 30 },
+  { name: 'Finn', className: 'Rogue', color: '#2ecc71', token: '\u{1F5E1}\uFE0F', speed: 30 },
+  { name: 'Sera', className: 'Cleric', color: '#f1c40f', token: '\u2728', speed: 30 },
+  { name: 'Brok', className: 'Barbarian', color: '#e67e22', token: '\u{1FA93}', speed: 40 },
+  { name: 'Lyra', className: 'Ranger', color: '#1abc9c', token: '\u{1F3F9}', speed: 35 },
 ];
 
 export class PlayerRoster {
@@ -26,8 +26,9 @@ export class PlayerRoster {
    * @param {{ id: number, username: string }} currentUser
    * @param {string} role – 'dm' | 'player'
    * @param {number} gameId – current game ID for API calls
+   * @param {{ isCircleVisible: Function, toggleCharacterCircle: Function }} [rangeCallbacks] – range circle toggle callbacks
    */
-  constructor(container, onSelect, onPlayersChange, currentUser, role, gameId) {
+  constructor(container, onSelect, onPlayersChange, currentUser, role, gameId, rangeCallbacks) {
     this.container = container;
     this.onSelect = onSelect;
     this.onPlayersChange = onPlayersChange;
@@ -36,6 +37,7 @@ export class PlayerRoster {
     this.gameId = gameId;
     this.players = [];
     this.activePlayer = null;
+    this.rangeCallbacks = rangeCallbacks || null;
 
     this._buildUI();
   }
@@ -64,6 +66,17 @@ export class PlayerRoster {
         <div class="roster-color-row">
           <label>Color</label>
           <input type="color" id="new-player-color" value="#3498db" />
+        </div>
+        <div class="roster-speed-row">
+          <label>Speed</label>
+          <select id="new-player-speed">
+            <option value="25">25 ft</option>
+            <option value="30" selected>30 ft</option>
+            <option value="35">35 ft</option>
+            <option value="40">40 ft</option>
+            <option value="45">45 ft</option>
+            <option value="50">50 ft</option>
+          </select>
         </div>
         <div class="roster-presets" id="roster-presets">
           <span class="roster-presets-label">Quick-add:</span>
@@ -122,6 +135,7 @@ export class PlayerRoster {
         x: spawn.x,
         y: spawn.y,
         angle: 0,
+        speed: preset.speed || 30,
       });
 
       // Create local player from server data
@@ -141,6 +155,7 @@ export class PlayerRoster {
     const nameInput = this.panel.querySelector('#new-player-name');
     const classInput = this.panel.querySelector('#new-player-class');
     const colorInput = this.panel.querySelector('#new-player-color');
+    const speedInput = this.panel.querySelector('#new-player-speed');
 
     const name = nameInput.value.trim();
     if (!name) {
@@ -160,6 +175,7 @@ export class PlayerRoster {
         x: spawn.x,
         y: spawn.y,
         angle: 0,
+        speed: parseInt(speedInput.value, 10) || 30,
       });
 
       // Create local player from server data
@@ -257,14 +273,20 @@ export class PlayerRoster {
       const isActive = player === this.activePlayer;
       const isOwn = player.ownerId === this.currentUser.id;
       const canCtrl = this._canControl(player);
+
+      // Check range circle visibility (DM sees toggle for all players)
+      const showRangeToggle = this.role === 'dm' && this.rangeCallbacks && player.characterId;
+      const circleOn = showRangeToggle ? this.rangeCallbacks.isCircleVisible(player.characterId) : false;
+
       const item = document.createElement('div');
       item.className = `roster-item${isActive ? ' active' : ''}${!canCtrl ? ' locked' : ''}`;
       item.innerHTML = `
         <div class="roster-item-token" style="background:${player.color}">${player.token}</div>
         <div class="roster-item-info">
           <div class="roster-item-name">${player.name}${isOwn ? ' <span class="roster-you">(you)</span>' : ''}</div>
-          <div class="roster-item-class">${player.className || 'Adventurer'}</div>
+          <div class="roster-item-class">${player.className || 'Adventurer'} \u00B7 <span class="roster-item-speed" data-char-id="${player.characterId}">${player.dndSpeed}ft</span></div>
         </div>
+        ${showRangeToggle ? `<button class="roster-range-toggle${circleOn ? ' on' : ''}" data-char-id="${player.characterId}" title="${circleOn ? 'Hide' : 'Show'} range circle">${circleOn ? '\u{1F441}\uFE0F' : '\u{1F441}\uFE0F'}</button>` : ''}
         <div class="roster-item-pos">(${Math.floor(player.x)},${Math.floor(player.y)})</div>
         ${canCtrl ? `<button class="roster-item-remove" data-id="${player.id}" title="Remove">\u00D7</button>` : ''}
       `;
@@ -272,10 +294,31 @@ export class PlayerRoster {
       // Click to select (only if controllable)
       item.addEventListener('click', (e) => {
         if (e.target.closest('.roster-item-remove')) return;
+        if (e.target.closest('.roster-item-speed')) return;
+        if (e.target.closest('.roster-speed-edit')) return;
+        if (e.target.closest('.roster-range-toggle')) return;
         if (canCtrl) {
           this.selectPlayer(player.id);
         }
       });
+
+      // Range circle toggle (DM only)
+      const rangeBtn = item.querySelector('.roster-range-toggle');
+      if (rangeBtn && this.rangeCallbacks) {
+        rangeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.rangeCallbacks.toggleCharacterCircle(player.characterId);
+        });
+      }
+
+      // Inline speed editing (for controllable characters)
+      const speedEl = item.querySelector('.roster-item-speed');
+      if (speedEl && canCtrl) {
+        speedEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._showSpeedEditor(speedEl, player);
+        });
+      }
 
       // Remove button (only shown for controllable characters)
       const removeBtn = item.querySelector('.roster-item-remove');
@@ -287,6 +330,44 @@ export class PlayerRoster {
 
       list.appendChild(item);
     }
+  }
+
+  /**
+   * Show inline speed editor (replace the speed label with a select dropdown).
+   */
+  _showSpeedEditor(speedEl, player) {
+    const select = document.createElement('select');
+    select.className = 'roster-speed-edit';
+    for (const val of [20, 25, 30, 35, 40, 45, 50, 55, 60]) {
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = `${val}ft`;
+      if (val === player.dndSpeed) opt.selected = true;
+      select.appendChild(opt);
+    }
+
+    speedEl.replaceWith(select);
+    select.focus();
+
+    // Stop propagation so game controls don't fire
+    select.addEventListener('keydown', (e) => e.stopPropagation());
+    select.addEventListener('keyup', (e) => e.stopPropagation());
+
+    const commit = async () => {
+      const newSpeed = parseInt(select.value, 10);
+      if (newSpeed !== player.dndSpeed && player.characterId) {
+        player.dndSpeed = newSpeed;
+        try {
+          await updateCharacter(player.characterId, { speed: newSpeed });
+        } catch (err) {
+          console.error('Failed to update speed:', err);
+        }
+      }
+      this._renderList();
+    };
+
+    select.addEventListener('change', commit);
+    select.addEventListener('blur', commit);
   }
 
   /** Call periodically to update position display. */

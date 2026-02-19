@@ -70,4 +70,13 @@ db.exec(`
   );
 `);
 
+// --- Migrations ---
+
+// Add speed column to characters (D&D movement speed in feet, default 30)
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN speed INTEGER DEFAULT 30`);
+} catch (e) {
+  // Column already exists — ignore
+}
+
 export default db;

@@ -5,6 +5,14 @@
 
 import { WALL_N, WALL_S, WALL_E, WALL_W } from '../engine/GameMap.js';
 
+/** Parse a hex colour string (#rrggbb) to { r, g, b }. */
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return { r, g, b };
+}
+
 export class MapRenderer2D {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -53,8 +61,9 @@ export class MapRenderer2D {
    * @param {import('../engine/Player.js').Player} activePlayer – the one whose view we're rendering
    * @param {boolean} [actionMode=false] – if true, dim non-active-turn players
    * @param {number|null} [turnActiveCharId=null] – characterId of the active-turn player
+   * @param {object[]} [movementDataList=[]] – array of movement data entries for range circles
    */
-  draw(players, activePlayer, actionMode = false, turnActiveCharId = null) {
+  draw(players, activePlayer, actionMode = false, turnActiveCharId = null, movementDataList = []) {
     const { ctx, gameMap, tileSize, camera } = this;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -195,6 +204,86 @@ export class MapRenderer2D {
 
       // Reset alpha
       if (isDimmed) ctx.globalAlpha = 1;
+    }
+
+    // --- Movement range circles (one per visible character) ---
+    for (const movementData of movementDataList) {
+      if (!movementData || movementData.totalCells <= 0) continue;
+
+      const startPx = movementData.startX * ts;
+      const startPy = movementData.startY * ts;
+      const radiusPixels = movementData.totalCells * ts;
+      const isOver = movementData.overBudget;
+
+      // Use player's colour for the circle, red when over budget
+      const overRgb = { r: 231, g: 76, b: 60 };
+      const circleRgb = isOver ? overRgb : hexToRgb(movementData.playerColor || '#2ecc71');
+
+      // Filled circle at turn start
+      ctx.beginPath();
+      ctx.arc(startPx, startPy, radiusPixels, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b}, ${isOver ? 0.06 : 0.08})`;
+      ctx.fill();
+
+      // Dashed border — turns red when over budget
+      ctx.strokeStyle = `rgba(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b}, ${isOver ? 0.5 : 0.4})`;
+      ctx.lineWidth = 2 * z;
+      ctx.setLineDash([6 * z, 4 * z]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Small marker at start position (so players can see where they began)
+      ctx.beginPath();
+      ctx.arc(startPx, startPy, 4 * z, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b}, ${isOver ? 0.6 : 0.5})`;
+      ctx.fill();
+
+      // --- Breadcrumb path trail ---
+      const crumbs = movementData.breadcrumbs;
+      if (crumbs && crumbs.length > 1) {
+        // Draw the path line
+        ctx.beginPath();
+        ctx.moveTo(crumbs[0].x * ts, crumbs[0].y * ts);
+        for (let i = 1; i < crumbs.length; i++) {
+          ctx.lineTo(crumbs[i].x * ts, crumbs[i].y * ts);
+        }
+        ctx.strokeStyle = `rgba(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b}, 0.6)`;
+        ctx.lineWidth = 3 * z;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([]);
+        ctx.stroke();
+
+        // Draw small dots along the path at intervals
+        for (let i = 0; i < crumbs.length; i++) {
+          // Draw every 3rd dot plus the first and last
+          if (i === 0 || i === crumbs.length - 1 || i % 3 === 0) {
+            ctx.beginPath();
+            ctx.arc(crumbs[i].x * ts, crumbs[i].y * ts, 2.5 * z, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b}, 0.8)`;
+            ctx.fill();
+          }
+        }
+      }
+
+      // --- Distance label near start marker ---
+      if (movementData.movedFeet > 0) {
+        ctx.font = `bold ${10 * z}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        const label = `${movementData.movedFeet}ft / ${movementData.totalFeet}ft`;
+        const labelX = startPx;
+        const labelY = startPy - 8 * z;
+        // Background pill
+        const tw = ctx.measureText(label).width + 8 * z;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.beginPath();
+        ctx.roundRect(labelX - tw / 2, labelY - 12 * z, tw, 14 * z, 3 * z);
+        ctx.fill();
+        // Text
+        ctx.fillStyle = `rgb(${circleRgb.r}, ${circleRgb.g}, ${circleRgb.b})`;
+        ctx.fillText(label, labelX, labelY);
+      }
     }
 
     // --- FOV cone for active player ---

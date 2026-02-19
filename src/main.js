@@ -156,6 +156,13 @@ let actionModeEnabled = false;
 let turnOrder = [];           // [characterId, ...]
 let turnActiveIndex = -1;     // index into turnOrder
 
+// --- Movement budget tracking (D&D movement speed enforcement) ---
+let turnDistanceMoved = {};   // { [characterId]: number } – cells moved this turn
+let turnStartPositions = {};  // { [characterId]: { x, y } } – where each character started their turn
+let turnBreadcrumbs = {};     // { [characterId]: [{x, y}, ...] } – breadcrumb path waypoints
+let movementLockedIn = {};    // { [characterId]: boolean } – true once player locks in movement
+let lockInBtn = null;         // DOM element for the "Lock In" button
+
 // --- Drag-and-drop state ---
 let dragTarget = null;
 let isDragging = false;
@@ -202,7 +209,11 @@ function initGameUI() {
     (allPlayers) => { players = allPlayers; },
     currentUser,
     currentRole,
-    currentGameId
+    currentGameId,
+    {
+      isCircleVisible: (charId) => isCircleVisible(charId),
+      toggleCharacterCircle: (charId) => toggleCharacterCircle(charId),
+    }
   );
 
   // Load existing players into roster
@@ -231,6 +242,10 @@ function initGameUI() {
     (characterId, roll) => {
       // Player or DM submitted an initiative roll — broadcast
       socket.sendInitiativeRoll(characterId, roll);
+    },
+    (sortedCharIds) => {
+      // DM sorted initiative order — broadcast to all clients
+      socket.sendInitiativeSort(sortedCharIds);
     }
   );
 
@@ -312,6 +327,9 @@ function initGameUI() {
   // Keyboard shortcuts
   window.addEventListener('keydown', onKeyDown);
 
+  // Movement range toggle button
+  _createRangeToggleBtn();
+
   // Start game loop
   lastTime = 0;
   rosterRefreshTimer = 0;
@@ -384,6 +402,13 @@ function initGameUI() {
     }
   });
 
+  // --- Initiative sort from server ---
+  socket.onInitiativeSort((msg) => {
+    if (turnTracker && msg.sortedCharIds) {
+      turnTracker.applySortOrder(msg.sortedCharIds);
+    }
+  });
+
   // --- Chat message from server ---
   socket.onChatMessage((msg) => {
     if (chatPanel) {
@@ -441,6 +466,21 @@ function cleanup() {
   actionModeEnabled = false;
   turnOrder = [];
   turnActiveIndex = -1;
+  turnDistanceMoved = {};
+  turnStartPositions = {};
+  turnBreadcrumbs = {};
+  movementLockedIn = {};
+  movementCircleVisible = {};
+  // Remove lock-in button entirely
+  if (lockInBtn && lockInBtn.parentNode) {
+    lockInBtn.parentNode.removeChild(lockInBtn);
+  }
+  lockInBtn = null;
+  // Remove range toggle button
+  if (rangeToggleBtn && rangeToggleBtn.parentNode) {
+    rangeToggleBtn.parentNode.removeChild(rangeToggleBtn);
+  }
+  rangeToggleBtn = null;
   dragTarget = null;
   isDragging = false;
   isPanning = false;
@@ -479,6 +519,10 @@ function canControl(player) {
 let viewMode = '2d';
 let minimapEnabled = true;
 let isPointerLocked = false;
+// Movement circle visibility – per-character for DM, single toggle for players
+// { [characterId]: boolean }  – if a characterId is absent, defaults to true
+let movementCircleVisible = {};
+let showMovementCircleGlobal = true;  // player's own toggle (also used as DM "all" default)
 
 function setupViewToggling() {
   const viewButtons = document.querySelectorAll('.view-btn');
@@ -578,6 +622,10 @@ function onKeyDown(e) {
     recenterCamera();
   }
 
+  if (e.code === 'KeyR') {
+    _toggleAllRangeCircles();
+  }
+
   if (e.code === 'Escape' && isPointerLocked) {
     document.exitPointerLock();
   }
@@ -611,6 +659,8 @@ function onActionModeToggle(enabled) {
     turnTracker.setVisible(enabled);
     if (enabled) {
       turnTracker.setPlayers(players);
+      // Broadcast to players so they see the initiative tracker and can enter rolls
+      socket.sendTurnUpdate({ enabled: true, order: [], activeIndex: -1 });
     } else {
       // Disable action mode — clear turn state and broadcast
       turnOrder = [];
@@ -625,6 +675,9 @@ function onActionModeToggle(enabled) {
 /** Apply a turn state (from local DM action or remote WebSocket). */
 function applyTurnState(state) {
   const wasMyTurn = isMyTurn();
+  const prevActiveCharId = (actionModeEnabled && turnOrder.length > 0 && turnActiveIndex >= 0)
+    ? turnOrder[turnActiveIndex] : null;
+
   actionModeEnabled = state.enabled;
   turnOrder = state.order || [];
   turnActiveIndex = typeof state.activeIndex === 'number' ? state.activeIndex : -1;
@@ -632,6 +685,27 @@ function applyTurnState(state) {
   if (!actionModeEnabled) {
     turnOrder = [];
     turnActiveIndex = -1;
+    turnDistanceMoved = {};
+    turnStartPositions = {};
+    turnBreadcrumbs = {};
+    movementLockedIn = {};
+    _hideLockInBtn();
+  }
+
+  // Reset movement budget and record start position when active turn changes
+  const newActiveCharId = (actionModeEnabled && turnOrder.length > 0 && turnActiveIndex >= 0)
+    ? turnOrder[turnActiveIndex] : null;
+  if (newActiveCharId && newActiveCharId !== prevActiveCharId) {
+    turnDistanceMoved[newActiveCharId] = 0;
+    movementLockedIn[newActiveCharId] = false;
+    // Record where this character starts their turn (circle stays here)
+    const turnPlayer = players.find(p => p.characterId === newActiveCharId);
+    if (turnPlayer) {
+      turnStartPositions[newActiveCharId] = { x: turnPlayer.x, y: turnPlayer.y };
+      turnBreadcrumbs[newActiveCharId] = [{ x: turnPlayer.x, y: turnPlayer.y }];
+    }
+    // Show/hide lock-in button based on whether it's our turn
+    _updateLockInBtn();
   }
 
   // Show "Your Turn!" notification if it just became this player's turn
@@ -678,6 +752,115 @@ function showYourTurnBanner() {
       }, 500);
     }
   }, 2000);
+}
+
+// --- Lock In Movement button ---
+
+/** Show or hide the Lock In button based on whether it's the current user's turn. */
+function _updateLockInBtn() {
+  if (!actionModeEnabled) { _hideLockInBtn(); return; }
+
+  const activeCharId = (turnOrder.length > 0 && turnActiveIndex >= 0)
+    ? turnOrder[turnActiveIndex] : null;
+  if (!activeCharId) { _hideLockInBtn(); return; }
+
+  const activeP = players.find(p => p.characterId === activeCharId);
+  const isOwner = activeP && activeP.ownerId === currentUser.id;
+  const isDM = currentRole === 'dm';
+
+  // Show for the player whose turn it is (or the DM)
+  if ((isOwner || isDM) && !movementLockedIn[activeCharId]) {
+    _showLockInBtn();
+  } else {
+    _hideLockInBtn();
+  }
+}
+
+function _showLockInBtn() {
+  if (lockInBtn) { lockInBtn.style.display = 'flex'; return; }
+
+  lockInBtn = document.createElement('button');
+  lockInBtn.className = 'lock-in-btn';
+  lockInBtn.textContent = 'Lock In Movement';
+  lockInBtn.addEventListener('click', _onLockInMovement);
+
+  const viewport = document.getElementById('viewport');
+  if (viewport) viewport.appendChild(lockInBtn);
+}
+
+function _hideLockInBtn() {
+  if (lockInBtn) {
+    lockInBtn.style.display = 'none';
+  }
+}
+
+function _onLockInMovement() {
+  const activeCharId = (turnOrder.length > 0 && turnActiveIndex >= 0)
+    ? turnOrder[turnActiveIndex] : null;
+  if (!activeCharId) return;
+
+  movementLockedIn[activeCharId] = true;
+  _hideLockInBtn();
+
+  // Add final position to breadcrumbs
+  const turnPlayer = players.find(p => p.characterId === activeCharId);
+  if (turnPlayer && turnBreadcrumbs[activeCharId]) {
+    const crumbs = turnBreadcrumbs[activeCharId];
+    const last = crumbs[crumbs.length - 1];
+    if (last.x !== turnPlayer.x || last.y !== turnPlayer.y) {
+      crumbs.push({ x: turnPlayer.x, y: turnPlayer.y });
+    }
+  }
+}
+
+// --- Range Circle Toggle button ---
+let rangeToggleBtn = null;
+
+/** Check if a specific character's movement circle should be visible. */
+function isCircleVisible(characterId) {
+  if (characterId in movementCircleVisible) return movementCircleVisible[characterId];
+  return showMovementCircleGlobal;
+}
+
+/** Toggle visibility for a single character's range circle. */
+function toggleCharacterCircle(characterId) {
+  const current = isCircleVisible(characterId);
+  movementCircleVisible[characterId] = !current;
+  _updateRangeToggleBtn();
+  // Re-render roster to update eye icons
+  if (roster) roster._renderList();
+}
+
+/** Toggle all range circles on/off (keyboard shortcut R, or DM "All" button). */
+function _toggleAllRangeCircles() {
+  showMovementCircleGlobal = !showMovementCircleGlobal;
+  // Reset per-character overrides so they all follow the global toggle
+  movementCircleVisible = {};
+  _updateRangeToggleBtn();
+  // Re-render roster to update eye icons
+  if (roster) roster._renderList();
+}
+
+function _createRangeToggleBtn() {
+  if (rangeToggleBtn) return;
+  rangeToggleBtn = document.createElement('button');
+  rangeToggleBtn.className = 'range-toggle-btn';
+  rangeToggleBtn.addEventListener('click', () => {
+    _toggleAllRangeCircles();
+  });
+  _updateRangeToggleBtn();
+  const viewport = document.getElementById('viewport');
+  if (viewport) viewport.appendChild(rangeToggleBtn);
+}
+
+function _updateRangeToggleBtn() {
+  if (!rangeToggleBtn) return;
+  // Check if any circles are visible
+  const anyVisible = players.some(p => p.characterId && isCircleVisible(p.characterId))
+    || showMovementCircleGlobal;
+  rangeToggleBtn.textContent = anyVisible ? '◎ Range' : '○ Range';
+  rangeToggleBtn.classList.toggle('active', anyVisible);
+  rangeToggleBtn.title = `${anyVisible ? 'Hide' : 'Show'} all movement ranges (R)`;
 }
 
 /** Re-centre the 2D camera on the active player (or first player for DM). */
@@ -835,22 +1018,57 @@ function gameLoop(timestamp) {
       const prevY = activePlayer.y;
       const prevAngle = activePlayer.angle;
 
-      if (input.isDown('ArrowUp'))    activePlayer.move(1, dt, gameMap);
-      if (input.isDown('ArrowDown'))  activePlayer.move(-1, dt, gameMap);
+      // In action mode, movement is blocked once locked in (but free to roam before locking)
+      let canMove = true;
+      if (actionModeEnabled && activePlayer.characterId) {
+        if (movementLockedIn[activePlayer.characterId]) {
+          canMove = false; // movement locked in — can't move until next turn
+        }
+      }
+
+      if (canMove) {
+        if (input.isDown('ArrowUp'))    activePlayer.move(1, dt, gameMap);
+        if (input.isDown('ArrowDown'))  activePlayer.move(-1, dt, gameMap);
+      }
+
+      // Turning is always free (D&D rule), strafing consumes movement
       if (input.isDown('ArrowLeft'))  {
         if (viewMode === 'fp' || isPointerLocked) {
-          activePlayer.strafe(-1, dt, gameMap);
+          if (canMove) activePlayer.strafe(-1, dt, gameMap);
         } else {
           activePlayer.turn(-1, dt);
         }
       }
       if (input.isDown('ArrowRight')) {
         if (viewMode === 'fp' || isPointerLocked) {
-          activePlayer.strafe(1, dt, gameMap);
+          if (canMove) activePlayer.strafe(1, dt, gameMap);
         } else {
           activePlayer.turn(1, dt);
         }
       }
+
+      // Accumulate distance moved and record breadcrumb path
+      if (actionModeEnabled && activePlayer.characterId) {
+        const movedDx = activePlayer.x - prevX;
+        const movedDy = activePlayer.y - prevY;
+        const frameDist = Math.sqrt(movedDx * movedDx + movedDy * movedDy);
+        if (frameDist > 0.001) {
+          turnDistanceMoved[activePlayer.characterId] =
+            (turnDistanceMoved[activePlayer.characterId] || 0) + frameDist;
+
+          // Add breadcrumb waypoint (sample every ~0.15 cells to avoid excessive points)
+          const crumbs = turnBreadcrumbs[activePlayer.characterId];
+          if (crumbs) {
+            const last = crumbs[crumbs.length - 1];
+            const dxC = activePlayer.x - last.x;
+            const dyC = activePlayer.y - last.y;
+            if (Math.sqrt(dxC * dxC + dyC * dyC) > 0.15) {
+              crumbs.push({ x: activePlayer.x, y: activePlayer.y });
+            }
+          }
+        }
+      }
+
       // Broadcast position if it changed
       if (activePlayer.characterId &&
           (activePlayer.x !== prevX || activePlayer.y !== prevY || activePlayer.angle !== prevAngle)) {
@@ -864,13 +1082,89 @@ function gameLoop(timestamp) {
     ? turnOrder[turnActiveIndex]
     : null;
 
+  // Compute movement data for range circle overlays + breadcrumb paths.
+  // DM sees circles for ALL players simultaneously; regular players see only the active turn.
+  // In action mode: circle is STATIONARY at turn start position with full radius,
+  //   breadcrumb path shows the route taken, distance accumulates continuously
+  // In free mode: circle follows characters at full radius (no breadcrumbs)
+  let allMovementData = [];
+
+  /** Build a movementData entry for a given player character. */
+  function _buildMovementEntry(p) {
+    if (!p || !p.characterId || p.dndSpeedCells <= 0) return null;
+    const charId = p.characterId;
+    // Check per-character visibility
+    if (!isCircleVisible(charId)) return null;
+
+    if (actionModeEnabled && turnStartPositions[charId]) {
+      // Action mode with turn data: circle at turn start, breadcrumb trail
+      const moved = turnDistanceMoved[charId] || 0;
+      const totalCells = p.dndSpeedCells;
+      const remaining = Math.max(0, totalCells - moved);
+      const startPos = turnStartPositions[charId];
+      const crumbs = turnBreadcrumbs[charId] || [];
+      const locked = movementLockedIn[charId] || false;
+      return {
+        characterId: charId,
+        remainingCells: remaining,
+        totalCells,
+        remainingFeet: Math.round(remaining * 5),
+        totalFeet: p.dndSpeed,
+        movedFeet: Math.round(moved * 5),
+        overBudget: moved > totalCells,
+        startX: startPos.x,
+        startY: startPos.y,
+        breadcrumbs: crumbs,
+        lockedIn: locked,
+        playerColor: p.color,
+      };
+    }
+    // Free mode, or action mode without turn data (not this character's turn):
+    // show full range circle centred on current position
+    return {
+      characterId: charId,
+      remainingCells: p.dndSpeedCells,
+      totalCells: p.dndSpeedCells,
+      remainingFeet: p.dndSpeed,
+      totalFeet: p.dndSpeed,
+      movedFeet: 0,
+      overBudget: false,
+      startX: p.x,
+      startY: p.y,
+      breadcrumbs: [],
+      lockedIn: false,
+      playerColor: p.color,
+    };
+  }
+
+  if (currentRole === 'dm') {
+    // DM sees all players' circles simultaneously
+    for (const p of players) {
+      const entry = _buildMovementEntry(p);
+      if (entry) allMovementData.push(entry);
+    }
+  } else if (actionModeEnabled && turnActiveCharId) {
+    // Regular player in action mode: only the active turn character
+    const turnPlayer = players.find(p => p.characterId === turnActiveCharId);
+    const entry = _buildMovementEntry(turnPlayer);
+    if (entry) allMovementData.push(entry);
+  } else if (!actionModeEnabled && activePlayer) {
+    // Regular player in free mode: only their selected character
+    const entry = _buildMovementEntry(activePlayer);
+    if (entry) allMovementData.push(entry);
+  }
+
+  // Primary movement data (for HUD bar in first-person) — the active turn character's data
+  const primaryMovementData = allMovementData.find(d => d.characterId === turnActiveCharId)
+    || allMovementData[0] || null;
+
   if (activePlayer) {
     if (viewMode === '2d' || viewMode === 'split') {
-      renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId);
+      renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId, allMovementData);
     }
 
     if (viewMode === 'fp' || viewMode === 'split') {
-      rendererFP.draw(activePlayer, players);
+      rendererFP.draw(activePlayer, players, allMovementData, primaryMovementData);
     }
 
     // Minimap overlay (shown in FP mode)

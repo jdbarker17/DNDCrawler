@@ -14,14 +14,16 @@ export class TurnTracker {
    * @param {string} role – 'dm' | 'player'
    * @param {(turnState: object) => void} onTurnChange – called when DM changes turn state
    * @param {(characterId: number, roll: number|null) => void} [onInitiativeRoll] – called when a roll is submitted
+   * @param {(sortedCharIds: number[]) => void} [onInitiativeSort] – called when DM sorts initiative order
    */
-  constructor(container, players, currentUser, role, onTurnChange, onInitiativeRoll = null) {
+  constructor(container, players, currentUser, role, onTurnChange, onInitiativeRoll = null, onInitiativeSort = null) {
     this.container = container;
     this.players = [...players];
     this.currentUser = currentUser;
     this.role = role;
     this.onTurnChange = onTurnChange;
     this.onInitiativeRoll = onInitiativeRoll;
+    this.onInitiativeSort = onInitiativeSort;
 
     // Turn state
     this.enabled = false;
@@ -264,6 +266,24 @@ export class TurnTracker {
       return rollB - rollA; // descending
     });
     this._render();
+
+    // Broadcast sorted order to all clients via both mechanisms
+    const sortedCharIds = this.players
+      .filter(p => p.characterId)
+      .map(p => p.characterId);
+
+    if (this.onInitiativeSort) {
+      this.onInitiativeSort(sortedCharIds);
+    }
+
+    // Also emit a turn_update with the sorted player order so all clients
+    // update immediately (the turn_update path is proven to work reliably)
+    this.onTurnChange({
+      enabled: true,
+      order: [],
+      activeIndex: -1,
+      sortedPlayerOrder: sortedCharIds,
+    });
   }
 
   _startTurns() {
@@ -386,6 +406,11 @@ export class TurnTracker {
       this.turnCounter = 0;
     }
 
+    // Apply sorted player order if included (from DM sort action)
+    if (state.sortedPlayerOrder && Array.isArray(state.sortedPlayerOrder) && state.sortedPlayerOrder.length > 0) {
+      this.applySortOrder(state.sortedPlayerOrder);
+    }
+
     this.setVisible(this.enabled);
     this._render();
   }
@@ -401,6 +426,28 @@ export class TurnTracker {
     } else {
       this.initiativeRolls.delete(characterId);
     }
+    this._render();
+  }
+
+  /**
+   * Apply a sorted initiative order from a remote WebSocket update.
+   * Reorders the local player list to match the sorted character ID order.
+   * @param {number[]} sortedCharIds – character IDs in sorted order
+   */
+  applySortOrder(sortedCharIds) {
+    if (!sortedCharIds || sortedCharIds.length === 0) return;
+
+    // Build a position map: characterId → desired index
+    const posMap = new Map();
+    sortedCharIds.forEach((id, idx) => posMap.set(id, idx));
+
+    // Sort the player list to match the broadcast order
+    this.players.sort((a, b) => {
+      const posA = posMap.has(a.characterId) ? posMap.get(a.characterId) : 999;
+      const posB = posMap.has(b.characterId) ? posMap.get(b.characterId) : 999;
+      return posA - posB;
+    });
+
     this._render();
   }
 

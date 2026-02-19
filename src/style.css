@@ -306,6 +306,34 @@ html, body {
   color: #e74c3c;
 }
 
+/* ---- Roster: Range Circle Toggle (DM per-player) ---- */
+
+.roster-range-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 3px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+  filter: grayscale(1);
+}
+
+.roster-range-toggle:hover {
+  opacity: 0.7;
+}
+
+.roster-range-toggle.on {
+  opacity: 0.9;
+  filter: none;
+}
+
+.roster-range-toggle.on:hover {
+  opacity: 1;
+}
+
 .roster-add-btn {
   padding: 5px 10px;
   border: 1px dashed #555;
@@ -362,6 +390,49 @@ html, body {
   background: #1a1a1a;
   cursor: pointer;
   padding: 0;
+}
+
+.roster-speed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.roster-speed-row select {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 3px 6px;
+  color: #ddd;
+  font-size: 12px;
+  outline: none;
+}
+
+.roster-speed-row select:focus {
+  border-color: #c9a84c;
+}
+
+.roster-item-speed {
+  color: #2ecc71;
+  cursor: pointer;
+}
+
+.roster-item-speed:hover {
+  color: #27ae60;
+  text-decoration: underline;
+}
+
+.roster-speed-edit {
+  width: 58px;
+  padding: 1px 3px;
+  background: #1a1a1a;
+  border: 1px solid #c9a84c;
+  border-radius: 3px;
+  color: #2ecc71;
+  font-size: 11px;
+  outline: none;
 }
 
 .roster-presets {
@@ -1634,6 +1705,74 @@ html, body {
   font-weight: 700;
   color: #aaa;
   letter-spacing: 0.5px;
+}
+
+/* ---- Lock In Movement Button ---- */
+
+.lock-in-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 24px;
+  background: rgba(46, 204, 113, 0.9);
+  color: #111;
+  border: 2px solid #2ecc71;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  box-shadow: 0 4px 16px rgba(46, 204, 113, 0.3);
+  transition: all 0.2s ease;
+  animation: lock-in-pulse 2s ease-in-out infinite;
+}
+
+.lock-in-btn:hover {
+  background: rgba(46, 204, 113, 1);
+  box-shadow: 0 4px 24px rgba(46, 204, 113, 0.5);
+  transform: translateX(-50%) scale(1.05);
+}
+
+@keyframes lock-in-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(46, 204, 113, 0.3); }
+  50% { box-shadow: 0 4px 24px rgba(46, 204, 113, 0.5); }
+}
+
+/* ---- Range Circle Toggle Button ---- */
+
+.range-toggle-btn {
+  position: absolute;
+  bottom: 24px;
+  right: 340px;
+  z-index: 25;
+  padding: 6px 14px;
+  background: rgba(30, 30, 30, 0.85);
+  color: #888;
+  border: 1px solid #555;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.3px;
+}
+
+.range-toggle-btn:hover {
+  background: rgba(50, 50, 50, 0.9);
+  color: #ddd;
+  border-color: #777;
+}
+
+.range-toggle-btn.active {
+  color: #c9a84c;
+  border-color: #c9a84c;
+  background: rgba(201, 168, 76, 0.12);
 }
 
 @keyframes dice-pop {

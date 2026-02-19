@@ -22,6 +22,15 @@ export class Player {
     this.className = ''; // e.g. "Fighter", "Wizard"
     this.ownerId = null;     // user ID who owns this character
     this.characterId = null; // database character ID (for save/update)
+
+    // D&D movement speed (in feet). Each cell = 5ft.
+    this.dndSpeed = 30;       // default 30ft = 6 cells per turn
+    this.distanceMoved = 0;   // cells moved this turn (accumulated path)
+  }
+
+  /** Movement range in cells (each cell = 5ft). */
+  get dndSpeedCells() {
+    return this.dndSpeed / 5;
   }
 
   /** Create a Player from a server character record. */
@@ -33,6 +42,7 @@ export class Player {
     p.token = data.token || '';
     p.ownerId = data.user_id;
     p.characterId = data.id;
+    p.dndSpeed = data.speed ?? 30;
     return p;
   }
 

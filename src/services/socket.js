@@ -23,6 +23,7 @@ const handlers = {
   turn_update: [],
   dm_drag: [],
   initiative_roll: [],
+  initiative_sort: [],
   chat_message: [],
 };
 
@@ -190,6 +191,16 @@ export function sendInitiativeRoll(characterId, roll) {
 }
 
 /**
+ * Send an initiative sort event (DM only — server validates).
+ * Broadcasts the sorted character ID order to all clients.
+ * @param {number[]} sortedCharIds – character IDs in sorted order
+ */
+export function sendInitiativeSort(sortedCharIds) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'initiative_sort', sortedCharIds }));
+}
+
+/**
  * Send a chat message (group or DM), optionally with dice roll data.
  * @param {string} content – message text
  * @param {number|null} recipientId – null for group, userId for DM
@@ -253,6 +264,14 @@ export function onInitiativeRoll(callback) {
 }
 
 /**
+ * Register a handler for initiative sort updates.
+ * Callback receives: { sortedCharIds: number[] }
+ */
+export function onInitiativeSort(callback) {
+  handlers.initiative_sort.push(callback);
+}
+
+/**
  * Register a handler for chat messages.
  * Callback receives: { id, senderId, senderName, recipientId, content, createdAt }
  */
@@ -270,5 +289,6 @@ export function clearHandlers() {
   handlers.turn_update.length = 0;
   handlers.dm_drag.length = 0;
   handlers.initiative_roll.length = 0;
+  handlers.initiative_sort.length = 0;
   handlers.chat_message.length = 0;
 }
