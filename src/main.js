@@ -121,6 +121,33 @@ function showMapCreator(gameId, existingMapData) {
   );
 }
 
+// --- In-game Map Library ---
+function openMapLibraryInGame() {
+  if (mapLibraryInstance) return; // already open
+
+  mapLibraryInstance = new MapLibrary(
+    gameContainer,
+    (mapData) => {
+      // Load the selected map into the current game
+      saveMapData(currentGameId, mapData).then(() => {
+        mapLibraryInstance.destroy();
+        mapLibraryInstance = null;
+        loadGame(currentGameId);
+      }).catch(err => {
+        console.error('Failed to apply map:', err);
+        alert('Failed to apply map to game.');
+      });
+    },
+    () => {
+      if (mapLibraryInstance) {
+        mapLibraryInstance.destroy();
+        mapLibraryInstance = null;
+      }
+    },
+    null // load-only mode from in-game
+  );
+}
+
 // --- Load game and start ---
 async function loadGame(gameId) {
   hideAll();

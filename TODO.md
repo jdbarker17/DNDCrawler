@@ -9,9 +9,9 @@
 
 ## Bugs / Fixes
 
-- When DM is moving a character in 2D change the hand to be a grabbing hand
-- When DM is moving a character in 2D, map should stay stationary and only character should move
-- DM Motion gesture should not exceed bounds of map
+- ~~When DM is moving a character in 2D change the hand to be a grabbing hand~~
+- ~~When DM is moving a character in 2D, map should stay stationary and only character should move~~
+- ~~DM Motion gesture should not exceed bounds of map~~
 
 ## Ideas / Nice-to-Have
 

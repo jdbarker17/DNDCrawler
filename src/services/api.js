@@ -151,3 +151,33 @@ export async function deleteCharacter(charId) {
 export async function getMessages(gameId) {
   return apiFetch(`/api/games/${gameId}/messages`);
 }
+
+// --- Saved Maps (Library) ---
+
+export async function getSavedMaps() {
+  return apiFetch('/api/maps');
+}
+
+export async function createSavedMap(name, mapData) {
+  return apiFetch('/api/maps', {
+    method: 'POST',
+    body: JSON.stringify({ name, map_data: mapData }),
+  });
+}
+
+export async function getSavedMap(mapId) {
+  return apiFetch(`/api/maps/${mapId}`);
+}
+
+export async function updateSavedMap(mapId, data) {
+  return apiFetch(`/api/maps/${mapId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSavedMap(mapId) {
+  return apiFetch(`/api/maps/${mapId}`, {
+    method: 'DELETE',
+  });
+}
