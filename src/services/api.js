@@ -146,6 +146,25 @@ export async function deleteCharacter(charId) {
   });
 }
 
+// --- Monsters ---
+
+export async function createMonster(gameId, monsterData) {
+  return apiFetch(`/api/games/${gameId}/characters`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...monsterData,
+      is_monster: 1,
+    }),
+  });
+}
+
+export async function updateMonsterHP(charId, hp, maxHp) {
+  return apiFetch(`/api/characters/${charId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ hp, max_hp: maxHp }),
+  });
+}
+
 // --- Messages ---
 
 export async function getMessages(gameId) {

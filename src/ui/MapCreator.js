@@ -5,6 +5,7 @@
  */
 
 import { GameMap, Cell, WALL_N, WALL_S, WALL_E, WALL_W } from '../engine/GameMap.js';
+import { MapLibrary } from './MapLibrary.js';
 
 const OBJECT_PALETTE = [
   { type: 'torch', sprite: '🔥', label: 'Torch' },
@@ -65,6 +66,12 @@ export class MapCreator {
     this.hoverGridY = -1;
     this.hoverEdge = null; // 'N' | 'S' | 'E' | 'W' | null
 
+    // Drag-painting state
+    this.isPainting = false;
+    this.paintWallAdd = true; // true = adding walls, false = removing
+    this.lastPaintKey = null; // "gx,gy,edge" to avoid re-toggling same wall
+    this.paintAxis = null; // 'H' (N/S edges) or 'V' (E/W edges) — locks drag direction
+
     this._boundHandlers = {};
     this._buildUI();
     this._loadBackgroundImage();
@@ -73,7 +80,6 @@ export class MapCreator {
 
   _createBlankMap(w, h) {
     const map = new GameMap(w, h);
-    // Start with all cells passable (empty room)
     return map;
   }
 
@@ -87,6 +93,7 @@ export class MapCreator {
         <h1>Map Creator</h1>
         <div class="mc-header-actions">
           <button class="mc-btn" id="mc-cancel">Cancel</button>
+          <button class="mc-btn" id="mc-save-library">Save to Library</button>
           <button class="mc-btn primary" id="mc-save">Save Map</button>
         </div>
       </div>
@@ -133,9 +140,15 @@ export class MapCreator {
               ).join('')}
             </div>
           </div>
+          <!-- Map Library -->
+          <div class="mc-panel">
+            <div class="mc-panel-title">Map Library</div>
+            <button class="mc-btn small" id="mc-browse-library">Browse Library</button>
+          </div>
           <!-- Quick Actions -->
           <div class="mc-panel">
             <div class="mc-panel-title">Quick Actions</div>
+            <button class="mc-btn small" id="mc-new-map">New Map</button>
             <button class="mc-btn small" id="mc-fill-solid">Fill All Solid</button>
             <button class="mc-btn small" id="mc-clear-solid">Clear All Solid</button>
             <button class="mc-btn small" id="mc-border-walls">Add Border Walls</button>
@@ -156,10 +169,16 @@ export class MapCreator {
   }
 
   _setupEventListeners() {
-    // Save / Cancel
+    // Save / Cancel / Library
     this.panel.querySelector('#mc-save').addEventListener('click', () => this._save());
     this.panel.querySelector('#mc-cancel').addEventListener('click', () => {
       if (this.onCancel) this.onCancel();
+    });
+    this.panel.querySelector('#mc-save-library').addEventListener('click', () => {
+      this._openLibrary('save');
+    });
+    this.panel.querySelector('#mc-browse-library').addEventListener('click', () => {
+      this._openLibrary('browse');
     });
 
     // Resize grid
@@ -220,6 +239,21 @@ export class MapCreator {
     });
 
     // Quick actions
+    this.panel.querySelector('#mc-new-map').addEventListener('click', () => {
+      const hasWork = this._mapHasContent() || this.gameMap.backgroundImage;
+      if (hasWork && !confirm('Create a new blank map? All current work will be lost.')) return;
+      const w = parseInt(this.panel.querySelector('#mc-width').value, 10) || 20;
+      const h = parseInt(this.panel.querySelector('#mc-height').value, 10) || 20;
+      this.gameMap = this._createBlankMap(w, h);
+      this.bgImage = null;
+      this.panel.querySelector('#mc-width').value = w;
+      this.panel.querySelector('#mc-height').value = h;
+      this.panel.querySelector('#mc-bg-opacity').value = 50;
+      this.panel.querySelector('#mc-bg-scale').value = 100;
+      this.panel.querySelector('#mc-clear-img').style.display = 'none';
+      this.camera = { x: 0, y: 0, zoom: 1 };
+      this._render();
+    });
     this.panel.querySelector('#mc-fill-solid').addEventListener('click', () => {
       for (let y = 0; y < this.gameMap.height; y++)
         for (let x = 0; x < this.gameMap.width; x++) {
@@ -231,8 +265,12 @@ export class MapCreator {
     });
     this.panel.querySelector('#mc-clear-solid').addEventListener('click', () => {
       for (let y = 0; y < this.gameMap.height; y++)
-        for (let x = 0; x < this.gameMap.width; x++)
-          this.gameMap.cells[y][x].solid = false;
+        for (let x = 0; x < this.gameMap.width; x++) {
+          const cell = this.gameMap.cells[y][x];
+          cell.solid = false;
+          cell.walls = 0;
+          cell.objects = [];
+        }
       this._render();
     });
     this.panel.querySelector('#mc-border-walls').addEventListener('click', () => {
@@ -305,7 +343,19 @@ export class MapCreator {
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        // Resize if too large
+        // Ask user if they want to clear existing work
+        const hasExistingWork = this._mapHasContent();
+        if (hasExistingWork) {
+          const clearIt = confirm(
+            'Clear existing map content?\n\n' +
+            'OK = Start fresh with this image\n' +
+            'Cancel = Keep existing walls/objects and just change the background'
+          );
+          if (clearIt) {
+            this._resetMapContent();
+          }
+        }
+
         const maxDim = 2048;
         let w = img.width, h = img.height;
         if (w > maxDim || h > maxDim) {
@@ -321,12 +371,54 @@ export class MapCreator {
         const dataUrl = offscreen.toDataURL('image/jpeg', 0.7);
 
         this.gameMap.backgroundImage = dataUrl;
+
+        // Fit the image to the grid: scale so the image covers exactly
+        // the grid's width × height cells (1 cell = tileSize pixels).
+        // bgScale is relative to the tileSize, so bgScale=1 means
+        // 1 image-pixel = 1 world-pixel at tileSize.
+        const gridW = this.gameMap.width * this.tileSize;
+        const gridH = this.gameMap.height * this.tileSize;
+        const scaleToFit = Math.min(gridW / w, gridH / h);
+        this.gameMap.bgScale = scaleToFit;
+        this.gameMap.bgOffsetX = 0;
+        this.gameMap.bgOffsetY = 0;
+
+        // Update sidebar controls
+        this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
+
         this._loadBackgroundImage();
         this.panel.querySelector('#mc-clear-img').style.display = 'block';
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
+  }
+
+  _mapHasContent() {
+    for (let y = 0; y < this.gameMap.height; y++) {
+      for (let x = 0; x < this.gameMap.width; x++) {
+        const cell = this.gameMap.cells[y][x];
+        if (cell.walls !== 0) return true;
+        if (cell.solid) return true;
+        if (cell.objects.length > 0) return true;
+      }
+    }
+    return false;
+  }
+
+  _resetMapContent() {
+    const w = this.gameMap.width;
+    const h = this.gameMap.height;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const cell = this.gameMap.cells[y][x];
+        cell.walls = 0;
+        cell.solid = false;
+        cell.objects = [];
+        cell.floorColor = '#3a3a2a';
+        cell.light = 1.0;
+      }
+    }
   }
 
   _loadBackgroundImage() {
@@ -348,13 +440,10 @@ export class MapCreator {
   _resizeGrid(newW, newH) {
     const oldMap = this.gameMap;
     const newMap = new GameMap(newW, newH);
-    // Copy background properties
     newMap.backgroundImage = oldMap.backgroundImage;
-    newMap.bgOffsetX = oldMap.bgOffsetX;
-    newMap.bgOffsetY = oldMap.bgOffsetY;
-    newMap.bgScale = oldMap.bgScale;
+    newMap.bgOffsetX = 0;
+    newMap.bgOffsetY = 0;
     newMap.bgOpacity = oldMap.bgOpacity;
-    // Copy overlapping cells
     const overlapW = Math.min(oldMap.width, newW);
     const overlapH = Math.min(oldMap.height, newH);
     for (let y = 0; y < overlapH; y++) {
@@ -373,6 +462,15 @@ export class MapCreator {
       }
     }
     this.gameMap = newMap;
+
+    // Recalculate bgScale so the image fits the new grid dimensions
+    if (this.bgImage) {
+      const gridW = newW * this.tileSize;
+      const gridH = newH * this.tileSize;
+      newMap.bgScale = Math.min(gridW / this.bgImage.width, gridH / this.bgImage.height);
+      this.panel.querySelector('#mc-bg-scale').value = Math.round(newMap.bgScale * 100);
+    }
+
     this.panel.querySelector('#mc-width').value = newW;
     this.panel.querySelector('#mc-height').value = newH;
     this._render();
@@ -385,7 +483,6 @@ export class MapCreator {
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
-    // Shift+drag: move background image
     if (e.shiftKey && this.bgImage) {
       this.isDraggingImage = true;
       this.imgDragLastX = sx;
@@ -395,7 +492,6 @@ export class MapCreator {
       return;
     }
 
-    // Right-click or middle-click: pan
     if (e.button === 2 || e.button === 1) {
       this.isPanning = true;
       this.panLastX = e.clientX;
@@ -404,6 +500,45 @@ export class MapCreator {
       e.preventDefault();
       return;
     }
+
+    // Left-click: start drag-painting for wall tool
+    if (e.button === 0 && this.activeTool === 'wall') {
+      const world = this._screenToWorld(sx, sy);
+      const gx = Math.floor(world.x);
+      const gy = Math.floor(world.y);
+      if (this.gameMap.inBounds(gx, gy)) {
+        const fx = world.x - gx;
+        const fy = world.y - gy;
+        const edge = this._getEdge(fx, fy);
+        if (edge) {
+          const cell = this.gameMap.getCell(gx, gy);
+          const flag = this._edgeToFlag(edge);
+          // Determine if we're adding or removing based on current state
+          this.paintWallAdd = !cell.hasWall(flag);
+          this.isPainting = true;
+          this.lastPaintKey = `${gx},${gy},${edge}`;
+          // Lock axis: N/S edges = horizontal wall lines, E/W edges = vertical wall lines
+          this.paintAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
+          this._applyWallPaint(gx, gy, edge);
+          this._render();
+          e.preventDefault();
+        }
+      }
+    }
+
+    // Left-click: start drag-erasing
+    if (e.button === 0 && this.activeTool === 'erase') {
+      const world = this._screenToWorld(sx, sy);
+      const gx = Math.floor(world.x);
+      const gy = Math.floor(world.y);
+      if (this.gameMap.inBounds(gx, gy)) {
+        this.isPainting = true;
+        this.lastPaintKey = `${gx},${gy}`;
+        this._eraseCell(gx, gy);
+        this._render();
+        e.preventDefault();
+      }
+    }
   }
 
   _onMouseMove(e) {
@@ -411,7 +546,6 @@ export class MapCreator {
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
-    // Image dragging
     if (this.isDraggingImage) {
       const z = this.camera.zoom;
       const ts = this.tileSize * z;
@@ -425,7 +559,6 @@ export class MapCreator {
       return;
     }
 
-    // Panning
     if (this.isPanning) {
       const dx = e.clientX - this.panLastX;
       const dy = e.clientY - this.panLastY;
@@ -437,7 +570,6 @@ export class MapCreator {
       return;
     }
 
-    // Hover tracking
     const world = this._screenToWorld(sx, sy);
     const gx = Math.floor(world.x);
     const gy = Math.floor(world.y);
@@ -447,20 +579,41 @@ export class MapCreator {
     if (this.activeTool === 'wall' && this.gameMap.inBounds(gx, gy)) {
       const fx = world.x - gx;
       const fy = world.y - gy;
-      const threshold = 0.25;
-      if (fy < threshold) this.hoverEdge = 'N';
-      else if (fy > 1 - threshold) this.hoverEdge = 'S';
-      else if (fx < threshold) this.hoverEdge = 'W';
-      else if (fx > 1 - threshold) this.hoverEdge = 'E';
-      else this.hoverEdge = null;
+      const edge = this._getEdge(fx, fy);
+
+      // While drag-painting, only show and apply edges on the locked axis
+      if (this.isPainting && this.paintAxis && edge) {
+        const edgeAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
+        if (edgeAxis === this.paintAxis) {
+          this.hoverEdge = edge;
+          const key = `${gx},${gy},${edge}`;
+          if (key !== this.lastPaintKey) {
+            this.lastPaintKey = key;
+            this._applyWallPaint(gx, gy, edge);
+          }
+        } else {
+          this.hoverEdge = null;
+        }
+      } else {
+        this.hoverEdge = edge;
+      }
     } else {
       this.hoverEdge = null;
+    }
+
+    // Drag-erase across cells
+    if (this.isPainting && this.activeTool === 'erase' && this.gameMap.inBounds(gx, gy)) {
+      const key = `${gx},${gy}`;
+      if (key !== this.lastPaintKey) {
+        this.lastPaintKey = key;
+        this._eraseCell(gx, gy);
+      }
     }
 
     this._render();
   }
 
-  _onMouseUp(e) {
+  _onMouseUp() {
     if (this.isDraggingImage) {
       this.isDraggingImage = false;
       this.canvas.style.cursor = '';
@@ -468,6 +621,11 @@ export class MapCreator {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = '';
+    }
+    if (this.isPainting) {
+      this.isPainting = false;
+      this.lastPaintKey = null;
+      this.paintAxis = null;
     }
   }
 
@@ -492,6 +650,8 @@ export class MapCreator {
   _onCanvasClick(e) {
     if (this.isPanning || this.isDraggingImage) return;
     if (e.button !== 0) return;
+    // Wall and erase tools are handled by mousedown/mousemove drag-painting
+    if (this.activeTool === 'wall' || this.activeTool === 'erase') return;
 
     const rect = this.canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
@@ -505,9 +665,6 @@ export class MapCreator {
     const cell = this.gameMap.getCell(gx, gy);
 
     switch (this.activeTool) {
-      case 'wall':
-        this._handleWallClick(gx, gy, world.x - gx, world.y - gy);
-        break;
       case 'solid':
         cell.solid = !cell.solid;
         if (cell.solid) {
@@ -532,9 +689,7 @@ export class MapCreator {
           y: 0.5,
         });
         break;
-      case 'erase':
-        cell.objects = [];
-        break;
+      // erase is handled by drag-painting in mousedown/mousemove
     }
 
     this._render();
@@ -564,6 +719,90 @@ export class MapCreator {
     if (flag === WALL_S && y < map.height - 1) map.getCell(x, y + 1)?.toggleWall(WALL_N);
     if (flag === WALL_W && x > 0) map.getCell(x - 1, y)?.toggleWall(WALL_E);
     if (flag === WALL_E && x < map.width - 1) map.getCell(x + 1, y)?.toggleWall(WALL_W);
+  }
+
+  _eraseCell(gx, gy) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    cell.objects = [];
+    cell.walls = 0;
+    cell.solid = false;
+    this._clearMirroredWalls(gx, gy);
+  }
+
+  _clearMirroredWalls(x, y) {
+    const map = this.gameMap;
+    if (y > 0) { const n = map.getCell(x, y - 1); if (n && n.hasWall(WALL_S)) n.toggleWall(WALL_S); }
+    if (y < map.height - 1) { const s = map.getCell(x, y + 1); if (s && s.hasWall(WALL_N)) s.toggleWall(WALL_N); }
+    if (x > 0) { const w = map.getCell(x - 1, y); if (w && w.hasWall(WALL_E)) w.toggleWall(WALL_E); }
+    if (x < map.width - 1) { const e = map.getCell(x + 1, y); if (e && e.hasWall(WALL_W)) e.toggleWall(WALL_W); }
+  }
+
+  _getEdge(fx, fy) {
+    const threshold = 0.25;
+    if (fy < threshold) return 'N';
+    if (fy > 1 - threshold) return 'S';
+    if (fx < threshold) return 'W';
+    if (fx > 1 - threshold) return 'E';
+    return null;
+  }
+
+  _edgeToFlag(edge) {
+    switch (edge) {
+      case 'N': return WALL_N;
+      case 'S': return WALL_S;
+      case 'E': return WALL_E;
+      case 'W': return WALL_W;
+    }
+    return null;
+  }
+
+  _applyWallPaint(gx, gy, edge) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    const flag = this._edgeToFlag(edge);
+    if (flag === null) return;
+    const has = cell.hasWall(flag);
+    if (this.paintWallAdd && !has) {
+      cell.toggleWall(flag);
+      this._mirrorWall(gx, gy, flag);
+    } else if (!this.paintWallAdd && has) {
+      cell.toggleWall(flag);
+      this._mirrorWall(gx, gy, flag);
+    }
+  }
+
+  // --- Library ---
+
+  _openLibrary(mode) {
+    if (this.library) return; // already open
+
+    this.gameMap.syncWalls();
+    const saveContext = (mode === 'save')
+      ? { mapData: this.gameMap.toJSON(), defaultName: '' }
+      : null;
+
+    this.library = new MapLibrary(
+      this.panel,
+      (mapData) => {
+        // Load map into the editor
+        this.gameMap = GameMap.fromJSON(mapData);
+        this._loadBackgroundImage();
+        this.panel.querySelector('#mc-width').value = this.gameMap.width;
+        this.panel.querySelector('#mc-height').value = this.gameMap.height;
+        this.panel.querySelector('#mc-bg-opacity').value = Math.round(this.gameMap.bgOpacity * 100);
+        this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
+        this._render();
+      },
+      () => {
+        // Close library
+        if (this.library) {
+          this.library.destroy();
+          this.library = null;
+        }
+      },
+      saveContext
+    );
   }
 
   // --- Save ---
@@ -613,7 +852,6 @@ export class MapCreator {
           ctx.globalAlpha = 0.85;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
-          // Diagonal lines to indicate solid
           ctx.strokeStyle = 'rgba(255,255,255,0.08)';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -624,7 +862,7 @@ export class MapCreator {
           ctx.stroke();
         } else {
           ctx.fillStyle = cell.floorColor;
-          ctx.globalAlpha = Math.max(0.15, cell.light) * 0.7; // slightly transparent to show bg
+          ctx.globalAlpha = Math.max(0.15, cell.light) * 0.7;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
         }
@@ -695,7 +933,6 @@ export class MapCreator {
       const py = this.hoverGridY * ts;
 
       if (this.activeTool === 'wall' && this.hoverEdge) {
-        // Highlight the hovered edge
         ctx.strokeStyle = 'rgba(201, 168, 76, 0.8)';
         ctx.lineWidth = 5 * z;
         ctx.lineCap = 'round';
@@ -708,14 +945,12 @@ export class MapCreator {
         }
         ctx.stroke();
       } else if (this.activeTool !== 'wall') {
-        // Highlight the full cell
         ctx.fillStyle = 'rgba(201, 168, 76, 0.15)';
         ctx.fillRect(px, py, ts, ts);
         ctx.strokeStyle = 'rgba(201, 168, 76, 0.5)';
         ctx.lineWidth = 2 * z;
         ctx.strokeRect(px, py, ts, ts);
 
-        // Ghost object preview
         if (this.activeTool === 'object') {
           ctx.globalAlpha = 0.5;
           ctx.font = `${ts * 0.5}px serif`;
@@ -731,6 +966,10 @@ export class MapCreator {
   // --- Cleanup ---
 
   destroy() {
+    if (this.library) {
+      this.library.destroy();
+      this.library = null;
+    }
     window.removeEventListener('resize', this._boundHandlers.resize);
     if (this.panel && this.panel.parentNode) {
       this.panel.parentNode.removeChild(this.panel);

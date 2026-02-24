@@ -26,6 +26,13 @@ export class Player {
     // D&D movement speed (in feet). Each cell = 5ft.
     this.dndSpeed = 30;       // default 30ft = 6 cells per turn
     this.distanceMoved = 0;   // cells moved this turn (accumulated path)
+
+    // Monster properties
+    this.isMonster = false;
+    this.hp = null;
+    this.maxHp = null;
+    this.monsterImage = null;    // data URL for custom monster sprite
+    this._monsterImageObj = null; // cached HTMLImageElement for rendering
   }
 
   /** Movement range in cells (each cell = 5ft). */
@@ -43,6 +50,17 @@ export class Player {
     p.ownerId = data.user_id;
     p.characterId = data.id;
     p.dndSpeed = data.speed ?? 30;
+
+    // Monster fields
+    p.isMonster = !!data.is_monster;
+    p.hp = data.hp ?? null;
+    p.maxHp = data.max_hp ?? null;
+    p.monsterImage = data.monster_image || null;
+    if (p.monsterImage) {
+      p._monsterImageObj = new Image();
+      p._monsterImageObj.src = p.monsterImage;
+    }
+
     return p;
   }
 

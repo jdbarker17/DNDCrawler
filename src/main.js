@@ -11,15 +11,17 @@ import { InputManager } from './engine/InputManager.js';
 import { MapRenderer2D } from './renderers/MapRenderer2D.js';
 import { RaycastRenderer } from './renderers/RaycastRenderer.js';
 import { DMTools } from './ui/DMTools.js';
+import { MonsterPanel } from './ui/MonsterPanel.js';
 import { PlayerRoster } from './ui/PlayerRoster.js';
 import { TurnTracker } from './ui/TurnTracker.js';
 import { ChatPanel } from './ui/ChatPanel.js';
 import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
 import { MapCreator } from './ui/MapCreator.js';
+import { MapLibrary } from './ui/MapLibrary.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
-  getMessages,
+  getMessages, createMonster,
 } from './services/api.js';
 import * as socket from './services/socket.js';
 
@@ -34,6 +36,7 @@ let activePlayer = null;
 let authScreen = null;
 let gameLobby = null;
 let mapCreator = null;
+let mapLibraryInstance = null;
 
 // --- DOM containers ---
 const authContainer = document.getElementById('auth-container');
@@ -178,9 +181,9 @@ async function loadGame(gameId) {
     // Load characters
     players = state.characters.map(c => Player.fromServerData(c));
 
-    // Select the user's first character, or first available
-    const myChar = players.find(p => p.ownerId === currentUser.id);
-    activePlayer = myChar || players[0] || null;
+    // Select the user's first non-monster character, or first non-monster available
+    const myChar = players.find(p => p.ownerId === currentUser.id && !p.isMonster);
+    activePlayer = myChar || players.find(p => !p.isMonster) || players[0] || null;
 
     initGameUI();
   } catch (err) {
@@ -217,6 +220,7 @@ let renderer2d = null;
 let rendererFP = null;
 let minimapRenderer = null;
 let dmTools = null;
+let monsterPanel = null;
 let roster = null;
 let turnTracker = null;
 let chatPanel = null;
@@ -270,6 +274,13 @@ function initGameUI() {
     () => showMapCreator(currentGameId, gameMap.toJSON())
   );
 
+  // Monster Panel – DM-only collapsible panel at bottom-left
+  monsterPanel = new MonsterPanel(
+    document.getElementById('monster-panel-container'),
+    currentRole,
+    (monsterData) => addMonster(monsterData)
+  );
+
   // Player Roster – pass user/role info for ownership restrictions
   roster = new PlayerRoster(
     document.getElementById('roster-container'),
@@ -319,6 +330,10 @@ function initGameUI() {
     (sortedCharIds) => {
       // DM sorted initiative order — broadcast to all clients
       socket.sendInitiativeSort(sortedCharIds);
+    },
+    (characterId, hp) => {
+      // DM changed monster HP — broadcast to other DM clients
+      socket.sendMonsterHPUpdate(characterId, hp);
     }
   );
 
@@ -497,6 +512,16 @@ function initGameUI() {
       chatPanel.addMessage(msg);
     }
   });
+
+  // --- Monster HP update from server (DM only) ---
+  socket.onMonsterHPUpdate((msg) => {
+    const player = players.find(p => p.characterId === msg.characterId);
+    if (player && player.isMonster) {
+      player.hp = msg.hp;
+      // Re-render turn tracker if visible
+      if (turnTracker) turnTracker._render();
+    }
+  });
 }
 
 function cleanup() {
@@ -527,13 +552,15 @@ function cleanup() {
   const recenterBtn = document.getElementById('recenter-btn');
   if (recenterBtn) recenterBtn.removeEventListener('click', recenterCamera);
 
-  // Clear roster, DM tools, turn tracker, and chat containers
+  // Clear roster, DM tools, monster panel, turn tracker, and chat containers
   const toolbar = document.getElementById('toolbar');
   const rosterEl = document.getElementById('roster-container');
+  const monsterPanelEl = document.getElementById('monster-panel-container');
   const turnTrackerEl = document.getElementById('turn-tracker-container');
   const chatEl = document.getElementById('chat-container');
   if (toolbar) toolbar.innerHTML = '';
   if (rosterEl) rosterEl.innerHTML = '';
+  if (monsterPanelEl) monsterPanelEl.innerHTML = '';
   if (turnTrackerEl) turnTrackerEl.innerHTML = '';
   if (chatEl) chatEl.innerHTML = '';
 
@@ -572,6 +599,7 @@ function cleanup() {
   rendererFP = null;
   minimapRenderer = null;
   dmTools = null;
+  monsterPanel = null;
   roster = null;
   turnTracker = null;
   chatPanel = null;
@@ -587,6 +615,7 @@ function stopGameLoop() {
 /** Check if the current user can control a given player character. */
 function canControl(player) {
   if (!player) return false;
+  if (player.isMonster && currentRole !== 'dm') return false; // Only DM controls monsters
   if (currentRole === 'dm') return true;            // DM always controls
   if (player.ownerId !== currentUser.id) return false; // Must own character
 
@@ -595,6 +624,26 @@ function canControl(player) {
     return player.characterId === turnOrder[turnActiveIndex];
   }
   return true;
+}
+
+/** Add a monster to the game (DM only). */
+async function addMonster(monsterData) {
+  if (currentRole !== 'dm' || !currentGameId) return;
+
+  try {
+    const serverChar = await createMonster(currentGameId, monsterData);
+    const monsterPlayer = Player.fromServerData(serverChar);
+
+    // Add to roster and players array
+    if (roster) roster.addPlayer(monsterPlayer, true);
+    if (turnTracker) turnTracker.setPlayers(players);
+
+    // Broadcast to other clients
+    socket.sendCharacterAdded(serverChar);
+  } catch (err) {
+    console.error('Failed to add monster:', err);
+    alert('Failed to add monster.');
+  }
 }
 
 // --- View state ---

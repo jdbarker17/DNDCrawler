@@ -25,6 +25,7 @@ const handlers = {
   initiative_roll: [],
   initiative_sort: [],
   chat_message: [],
+  monster_hp_update: [],
 };
 
 /**
@@ -213,6 +214,16 @@ export function sendChatMessage(content, recipientId = null, roll = null) {
   ws.send(JSON.stringify(msg));
 }
 
+/**
+ * Send a monster HP update (DM only — server validates).
+ * @param {number} characterId – the monster's character ID
+ * @param {number} hp – new HP value
+ */
+export function sendMonsterHPUpdate(characterId, hp) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'monster_hp_update', characterId, hp }));
+}
+
 // --- Register event handlers ---
 
 /**
@@ -280,6 +291,14 @@ export function onChatMessage(callback) {
 }
 
 /**
+ * Register a handler for monster HP updates (DM only).
+ * Callback receives: { characterId, hp }
+ */
+export function onMonsterHPUpdate(callback) {
+  handlers.monster_hp_update.push(callback);
+}
+
+/**
  * Clear all event handlers (called on cleanup).
  */
 export function clearHandlers() {
@@ -291,4 +310,5 @@ export function clearHandlers() {
   handlers.initiative_roll.length = 0;
   handlers.initiative_sort.length = 0;
   handlers.chat_message.length = 0;
+  handlers.monster_hp_update.length = 0;
 }

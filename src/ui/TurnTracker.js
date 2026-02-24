@@ -16,7 +16,7 @@ export class TurnTracker {
    * @param {(characterId: number, roll: number|null) => void} [onInitiativeRoll] – called when a roll is submitted
    * @param {(sortedCharIds: number[]) => void} [onInitiativeSort] – called when DM sorts initiative order
    */
-  constructor(container, players, currentUser, role, onTurnChange, onInitiativeRoll = null, onInitiativeSort = null) {
+  constructor(container, players, currentUser, role, onTurnChange, onInitiativeRoll = null, onInitiativeSort = null, onMonsterHPChange = null) {
     this.container = container;
     this.players = [...players];
     this.currentUser = currentUser;
@@ -24,6 +24,7 @@ export class TurnTracker {
     this.onTurnChange = onTurnChange;
     this.onInitiativeRoll = onInitiativeRoll;
     this.onInitiativeSort = onInitiativeSort;
+    this.onMonsterHPChange = onMonsterHPChange;
 
     // Turn state
     this.enabled = false;
@@ -122,6 +123,7 @@ export class TurnTracker {
     const dragHandle = isDM && this.enabled ? '<span class="turn-drag-handle">:::</span>' : '';
     const isMyChar = player.ownerId === this.currentUser.id;
     const youBadge = isMyChar ? ' <span class="turn-you">(you)</span>' : '';
+    const monsterBadge = player.isMonster ? ' <span class="turn-monster-badge">M</span>' : '';
     const orderNum = index + 1;
 
     // Initiative roll value
@@ -143,12 +145,19 @@ export class TurnTracker {
       initiativeHtml = `<span class="initiative-display" title="Initiative roll">${displayVal}</span>`;
     }
 
+    // Monster HP display (DM only, clickable to edit)
+    let hpHtml = '';
+    if (player.isMonster && isDM && player.hp != null) {
+      hpHtml = `<span class="turn-monster-hp" data-char-id="${player.characterId}" title="Click to edit HP">${player.hp}/${player.maxHp}</span>`;
+    }
+
     return `
       <div class="turn-order-item${activeClass}" data-index="${index}" data-char-id="${player.characterId}" ${draggable}>
         ${dragHandle}
         <span class="turn-order-num">${orderNum}</span>
         <span class="turn-order-token" style="background:${player.color}"></span>
-        <span class="turn-order-name">${player.name}${youBadge}</span>
+        <span class="turn-order-name">${player.name}${monsterBadge}${youBadge}</span>
+        ${hpHtml}
         ${initiativeHtml}
       </div>
     `;
@@ -207,6 +216,47 @@ export class TurnTracker {
           e.preventDefault();
           input.blur();
         }
+      });
+    });
+
+    // Monster HP click-to-edit (DM only)
+    const hpSpans = this.el.querySelectorAll('.turn-monster-hp');
+    hpSpans.forEach(span => {
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const charId = parseInt(span.dataset.charId, 10);
+        const player = this.players.find(p => p.characterId === charId);
+        if (!player) return;
+
+        // Replace span with inline input
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'turn-monster-hp-input';
+        input.value = player.hp;
+        input.min = 0;
+        input.style.width = '50px';
+        span.replaceWith(input);
+        input.focus();
+        input.select();
+
+        const commitHP = () => {
+          const newHP = parseInt(input.value, 10);
+          if (!isNaN(newHP) && newHP >= 0) {
+            player.hp = newHP;
+            if (this.onMonsterHPChange) {
+              this.onMonsterHPChange(charId, newHP);
+            }
+          }
+          this._render();
+        };
+
+        input.addEventListener('blur', commitHP);
+        input.addEventListener('keydown', (ke) => {
+          if (ke.key === 'Enter') {
+            ke.preventDefault();
+            input.blur();
+          }
+        });
       });
     });
 

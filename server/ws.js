@@ -181,6 +181,25 @@ export function initWebSocket(server) {
         return;
       }
 
+      // --- Monster HP update (DM only, broadcast only to DM clients) ---
+      if (msg.type === 'monster_hp_update') {
+        if (client.role !== 'dm') return;
+        const { characterId, hp } = msg;
+        if (characterId == null || hp == null) return;
+        db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(hp, characterId);
+        // Broadcast only to DM clients (players should not see HP)
+        const room = rooms.get(client.gameId);
+        if (room) {
+          const data = JSON.stringify({ type: 'monster_hp_update', characterId, hp });
+          for (const c of room) {
+            if (c.role === 'dm' && c.ws.readyState === 1) {
+              c.ws.send(data);
+            }
+          }
+        }
+        return;
+      }
+
       // --- DM drag (DM only) ---
       if (msg.type === 'dm_drag') {
         if (client.role !== 'dm') return;
