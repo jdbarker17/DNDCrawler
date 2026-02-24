@@ -284,7 +284,7 @@ export class PlayerRoster {
         <div class="roster-item-token" style="background:${player.color}">${player.token}</div>
         <div class="roster-item-info">
           <div class="roster-item-name">${player.name}${isOwn ? ' <span class="roster-you">(you)</span>' : ''}</div>
-          <div class="roster-item-class">${player.className || 'Adventurer'} \u00B7 <span class="roster-item-speed" data-char-id="${player.characterId}">${player.dndSpeed}ft</span></div>
+          <div class="roster-item-class">${player.isMonster ? (this.role === 'dm' ? (player.className || 'Monster') : 'Monster') : (player.className || 'Adventurer')}${(player.isMonster && this.role !== 'dm') ? '' : ` \u00B7 <span class="roster-item-speed" data-char-id="${player.characterId}">${player.dndSpeed}ft</span>`}</div>
         </div>
         ${showRangeToggle ? `<button class="roster-range-toggle${circleOn ? ' on' : ''}" data-char-id="${player.characterId}" title="${circleOn ? 'Hide' : 'Show'} range circle">${circleOn ? '\u{1F441}\uFE0F' : '\u{1F441}\uFE0F'}</button>` : ''}
         <div class="roster-item-pos">(${Math.floor(player.x)},${Math.floor(player.y)})</div>

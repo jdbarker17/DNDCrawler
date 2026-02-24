@@ -112,10 +112,21 @@ export function initWebSocket(server) {
 
       // --- Character added ---
       if (msg.type === 'character_added') {
-        broadcastToOthers(client, {
-          type: 'character_added',
-          character: msg.character,
-        });
+        const char = msg.character;
+        if (char && char.is_monster) {
+          // Role-aware broadcast: full data to DMs, sanitized to players
+          const { hp, max_hp, class_name, speed, ...safeChar } = char;
+          const room = rooms.get(client.gameId);
+          if (room) {
+            for (const c of room) {
+              if (c === client || c.ws.readyState !== 1) continue;
+              const payload = c.role === 'dm' ? char : safeChar;
+              c.ws.send(JSON.stringify({ type: 'character_added', character: payload }));
+            }
+          }
+        } else {
+          broadcastToOthers(client, { type: 'character_added', character: char });
+        }
         return;
       }
 
