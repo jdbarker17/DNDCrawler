@@ -202,14 +202,30 @@ export class MapRenderer2D {
         ctx.restore();
       }
 
-      // Token circle
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = player.color;
-      ctx.fill();
-      ctx.strokeStyle = isActiveTurn ? '#c9a84c' : '#fff';
-      ctx.lineWidth = isActiveTurn ? 3 * z : 2 * z;
-      ctx.stroke();
+      // Token circle — monsters with images get circular-clipped image, otherwise colored circle
+      if (player.isMonster && player._monsterImageObj && player._monsterImageObj.complete) {
+        // Draw circular-clipped monster image
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(player._monsterImageObj, px - r, py - r, r * 2, r * 2);
+        ctx.restore();
+        // Red border for monsters
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.strokeStyle = isActiveTurn ? '#c9a84c' : '#e74c3c';
+        ctx.lineWidth = isActiveTurn ? 3 * z : 2.5 * z;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = player.color;
+        ctx.fill();
+        ctx.strokeStyle = isActiveTurn ? '#c9a84c' : (player.isMonster ? '#e74c3c' : '#fff');
+        ctx.lineWidth = isActiveTurn ? 3 * z : 2 * z;
+        ctx.stroke();
+      }
 
       // Direction indicator
       const dirX = px + Math.cos(player.angle) * r * 1.4;

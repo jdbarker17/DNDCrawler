@@ -130,13 +130,23 @@ router.get('/:id', (req, res) => {
     WHERE gp.game_id = ?
   `).all(gameId);
 
+  // Strip monster HP from non-DM responses
+  const isDM = membership.role === 'dm';
+  const sanitizedCharacters = characters.map(c => {
+    if (c.is_monster && !isDM) {
+      const { hp, max_hp, ...safe } = c;
+      return safe;
+    }
+    return c;
+  });
+
   res.json({
     id: game.id,
     name: game.name,
     dm_user_id: game.dm_user_id,
     map_data: game.map_data ? JSON.parse(game.map_data) : null,
     my_role: membership.role,
-    characters,
+    characters: sanitizedCharacters,
     players,
   });
 });

@@ -13,6 +13,7 @@ export class DMTools {
    * @param {import('../renderers/MapRenderer2D.js').MapRenderer2D} renderer2d
    * @param {string} role – 'dm' | 'player'
    * @param {(enabled: boolean) => void} [onActionModeToggle] – callback when Action Mode is toggled
+   * @param {() => void} [onEditMap] – callback to open map editor
    */
   constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null) {
     this.gameMap = gameMap;

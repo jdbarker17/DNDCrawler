@@ -90,4 +90,21 @@ try {
   // Column already exists — ignore
 }
 
+// Monster system columns
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN is_monster INTEGER DEFAULT 0`);
+} catch (e) { /* Column already exists */ }
+
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN hp INTEGER DEFAULT NULL`);
+} catch (e) { /* Column already exists */ }
+
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN max_hp INTEGER DEFAULT NULL`);
+} catch (e) { /* Column already exists */ }
+
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN monster_image TEXT DEFAULT NULL`);
+} catch (e) { /* Column already exists */ }
+
 export default db;

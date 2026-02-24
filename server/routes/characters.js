@@ -34,15 +34,23 @@ router.post('/games/:gameId/characters', (req, res) => {
     return res.status(403).json({ error: 'You are not a member of this game' });
   }
 
-  const { name, class_name, color, token, x, y, angle, speed } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Character name is required' });
   }
 
+  // Only the DM can create monsters
+  if (is_monster) {
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
+    if (!game || game.dm_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the DM can add monsters' });
+    }
+  }
+
   const result = db.prepare(`
-    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle, speed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.user.id,
     gameId,
@@ -53,7 +61,11 @@ router.post('/games/:gameId/characters', (req, res) => {
     x ?? 2.5,
     y ?? 1.5,
     angle ?? 0,
-    speed ?? 30
+    speed ?? 30,
+    is_monster ? 1 : 0,
+    hp ?? null,
+    max_hp ?? null,
+    monster_image || null
   );
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(result.lastInsertRowid);
@@ -83,7 +95,7 @@ router.put('/characters/:id', (req, res) => {
     return res.status(403).json({ error: 'Not authorized to update this character' });
   }
 
-  const { name, class_name, color, token, x, y, angle, speed } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed, hp, max_hp, monster_image } = req.body;
 
   db.prepare(`
     UPDATE characters SET
@@ -94,7 +106,10 @@ router.put('/characters/:id', (req, res) => {
       x = COALESCE(?, x),
       y = COALESCE(?, y),
       angle = COALESCE(?, angle),
-      speed = COALESCE(?, speed)
+      speed = COALESCE(?, speed),
+      hp = COALESCE(?, hp),
+      max_hp = COALESCE(?, max_hp),
+      monster_image = COALESCE(?, monster_image)
     WHERE id = ?
   `).run(
     name ?? null,
@@ -105,6 +120,9 @@ router.put('/characters/:id', (req, res) => {
     y ?? null,
     angle ?? null,
     speed ?? null,
+    hp ?? null,
+    max_hp ?? null,
+    monster_image ?? null,
     charId
   );
 
