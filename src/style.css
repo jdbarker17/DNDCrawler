@@ -2304,3 +2304,22 @@ html, body {
   outline: none;
   margin-left: auto;
 }
+
+/* ---- Canvas HP Editor (floating input over 2D canvas) ---- */
+.canvas-hp-editor {
+  width: 60px;
+  padding: 2px 4px;
+  background: #3a1a1a;
+  border: 2px solid #e74c3c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+  border-radius: 3px;
+  outline: none;
+}
+
+.canvas-hp-editor:focus {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 6px rgba(231, 76, 60, 0.5);
+}

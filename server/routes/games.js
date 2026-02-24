@@ -134,7 +134,7 @@ router.get('/:id', (req, res) => {
   const isDM = membership.role === 'dm';
   const sanitizedCharacters = characters.map(c => {
     if (c.is_monster && !isDM) {
-      const { hp, max_hp, ...safe } = c;
+      const { hp, max_hp, class_name, speed, ...safe } = c;
       return safe;
     }
     return c;

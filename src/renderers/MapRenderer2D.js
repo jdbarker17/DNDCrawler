@@ -36,6 +36,12 @@ export class MapRenderer2D {
     this.wallThickness = 3;
     this.wallColor = '#d4c9a8';
 
+    // Role-based rendering (set externally)
+    this.role = null;  // 'dm' | 'player'
+
+    // HP label hit areas for click-to-edit (populated each draw)
+    this.hpHitAreas = [];
+
     // Solid-block fill colour
     this.solidColor = '#111';
 
@@ -85,6 +91,7 @@ export class MapRenderer2D {
     const ts = tileSize * z;
 
     ctx.clearRect(0, 0, w, h);
+    this.hpHitAreas = [];
     ctx.save();
     ctx.translate(-camera.x, -camera.y);
 
@@ -220,7 +227,7 @@ export class MapRenderer2D {
       } else {
         ctx.beginPath();
         ctx.arc(px, py, r, 0, Math.PI * 2);
-        ctx.fillStyle = player.color;
+        ctx.fillStyle = (player.isMonster && this.role !== 'dm') ? '#e74c3c' : player.color;
         ctx.fill();
         ctx.strokeStyle = isActiveTurn ? '#c9a84c' : (player.isMonster ? '#e74c3c' : '#fff');
         ctx.lineWidth = isActiveTurn ? 3 * z : 2 * z;
@@ -242,6 +249,41 @@ export class MapRenderer2D {
       ctx.font = `${10 * z}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(player.name, px, py - r - 6 * z);
+
+      // Monster HP label (DM only) — red background badge below token
+      if (this.role === 'dm' && player.isMonster && player.hp !== undefined && player.hp !== null) {
+        const hpText = `${player.hp}/${player.maxHp ?? '?'}`;
+        const fontSize = Math.max(10 * z, 10);
+        ctx.save();
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const textWidth = ctx.measureText(hpText).width;
+        const padX = 5 * z;
+        const padY = 3 * z;
+        const boxW = textWidth + padX * 2;
+        const boxH = fontSize + padY * 2;
+        const boxX = px - boxW / 2;
+        const boxY = py + r + 5 * z;
+
+        // Red square background
+        ctx.fillStyle = '#b41e1e';
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+
+        // White HP text
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(hpText, px, boxY + padY);
+        ctx.restore();
+
+        // Store hit area in world coords for click detection
+        this.hpHitAreas.push({
+          characterId: player.characterId,
+          worldX: boxX,
+          worldY: boxY,
+          worldW: boxW,
+          worldH: boxH,
+        });
+      }
 
       // Reset alpha
       if (isDimmed) ctx.globalAlpha = 1;
@@ -406,5 +448,27 @@ export class MapRenderer2D {
       x: (screenX + this.camera.x) / ts,
       y: (screenY + this.camera.y) / ts,
     };
+  }
+
+  /**
+   * Check if a screen click lands on a monster HP label.
+   * @returns {{ characterId: number, screenX: number, screenY: number } | null}
+   */
+  getHPHitAtScreen(screenX, screenY) {
+    // Convert screen to world (accounting for camera offset)
+    const worldClickX = screenX + this.camera.x;
+    const worldClickY = screenY + this.camera.y;
+
+    for (const area of this.hpHitAreas) {
+      if (worldClickX >= area.worldX && worldClickX <= area.worldX + area.worldW &&
+          worldClickY >= area.worldY && worldClickY <= area.worldY + area.worldH) {
+        return {
+          characterId: area.characterId,
+          screenX: area.worldX - this.camera.x + area.worldW / 2,
+          screenY: area.worldY - this.camera.y,
+        };
+      }
+    }
+    return null;
   }
 }

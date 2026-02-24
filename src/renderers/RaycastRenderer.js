@@ -24,6 +24,9 @@ export class RaycastRenderer {
     this.ctx = canvas.getContext('2d');
     this.gameMap = gameMap;
 
+    // Role-based rendering (set externally)
+    this.role = null;  // 'dm' | 'player'
+
     // Rendering settings
     this.fov = Math.PI / 3; // 60° field of view
     this.maxDepth = 20;     // max ray distance
@@ -342,7 +345,8 @@ export class RaycastRenderer {
           const bodyY = screenY - spriteH * 0.3;
           const bodyH = spriteH * 0.6;
 
-          ctx.fillStyle = sp.player.color;
+          const monsterColor = (sp.player.isMonster && this.role !== 'dm') ? '#e74c3c' : sp.player.color;
+          ctx.fillStyle = monsterColor;
           ctx.beginPath();
           const r = spriteW * 0.3;
           ctx.moveTo(bodyX + r, bodyY);
@@ -361,7 +365,7 @@ export class RaycastRenderer {
           const headR = spriteW * 0.35;
           ctx.beginPath();
           ctx.arc(screenX, bodyY - headR * 0.5, headR, 0, Math.PI * 2);
-          ctx.fillStyle = sp.player.color;
+          ctx.fillStyle = monsterColor;
           ctx.fill();
           ctx.strokeStyle = sp.player.isMonster ? 'rgba(231,76,60,0.6)' : 'rgba(255,255,255,0.4)';
           ctx.lineWidth = Math.max(1, spriteW * 0.05);

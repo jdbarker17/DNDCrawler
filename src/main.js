@@ -262,7 +262,9 @@ function initGameUI() {
 
   // Renderers
   renderer2d = new MapRenderer2D(canvas2d, gameMap);
+  renderer2d.role = currentRole;
   rendererFP = new RaycastRenderer(canvasFP, gameMap);
+  rendererFP.role = currentRole;
 
   // DM Tools – pass role so it can hide for non-DMs
   dmTools = new DMTools(
@@ -646,6 +648,57 @@ async function addMonster(monsterData) {
   }
 }
 
+/** Show a floating HTML input over the canvas to edit monster HP. */
+function _showCanvasHPEditor(hpHit, canvasRect) {
+  const player = players.find(p => p.characterId === hpHit.characterId);
+  if (!player) return;
+
+  // Remove any existing editor
+  const existing = document.querySelector('.canvas-hp-editor');
+  if (existing) existing.remove();
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.className = 'canvas-hp-editor';
+  input.value = player.hp;
+  input.min = 0;
+  input.style.position = 'absolute';
+  input.style.left = `${canvasRect.left + hpHit.screenX}px`;
+  input.style.top = `${canvasRect.top + hpHit.screenY}px`;
+  input.style.transform = 'translate(-50%, 0)';
+  input.style.zIndex = '1000';
+
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+
+  // Stop keyboard shortcuts from firing while editing
+  input.addEventListener('keydown', (e) => e.stopPropagation());
+  input.addEventListener('keyup', (e) => e.stopPropagation());
+
+  const commit = () => {
+    const newHP = parseInt(input.value, 10);
+    if (!isNaN(newHP) && newHP >= 0) {
+      player.hp = newHP;
+      socket.sendMonsterHPUpdate(player.characterId, newHP);
+      // Also update the turn tracker display
+      if (turnTracker) turnTracker.setPlayers(players);
+    }
+    input.remove();
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (ke) => {
+    if (ke.key === 'Enter') {
+      ke.preventDefault();
+      input.blur();
+    }
+    if (ke.key === 'Escape') {
+      input.remove();
+    }
+  });
+}
+
 // --- View state ---
 let viewMode = '2d';
 let minimapEnabled = true;
@@ -653,7 +706,7 @@ let isPointerLocked = false;
 // Movement circle visibility – per-character for DM, single toggle for players
 // { [characterId]: boolean }  – if a characterId is absent, defaults to true
 let movementCircleVisible = {};
-let showMovementCircleGlobal = true;  // player's own toggle (also used as DM "all" default)
+let showMovementCircleGlobal = false;  // player's own toggle (also used as DM "all" default)
 
 function setupViewToggling() {
   const viewButtons = document.querySelectorAll('.view-btn');
@@ -704,6 +757,16 @@ function onCanvasClick(e) {
   const rect = canvas2d.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
+
+  // Check if DM clicked on a monster HP label
+  if (currentRole === 'dm' && renderer2d) {
+    const hpHit = renderer2d.getHPHitAtScreen(x, y);
+    if (hpHit) {
+      _showCanvasHPEditor(hpHit, rect);
+      return;
+    }
+  }
+
   if (dmTools) dmTools.handleClick(x, y);
 }
 
