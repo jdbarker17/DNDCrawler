@@ -17,7 +17,6 @@ import { ChatPanel } from './ui/ChatPanel.js';
 import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
 import { MapCreator } from './ui/MapCreator.js';
-import { MapLibrary } from './ui/MapLibrary.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
   getMessages,
@@ -35,7 +34,6 @@ let activePlayer = null;
 let authScreen = null;
 let gameLobby = null;
 let mapCreator = null;
-let mapLibraryInstance = null;
 
 // --- DOM containers ---
 const authContainer = document.getElementById('auth-container');
@@ -197,13 +195,10 @@ function hideAll() {
   gameContainer.style.display = 'none';
   mapCreatorContainer.style.display = 'none';
   stopGameLoop();
+  // Destroy map creator if open
   if (mapCreator) {
     mapCreator.destroy();
     mapCreator = null;
-  }
-  if (mapLibraryInstance) {
-    mapLibraryInstance.destroy();
-    mapLibraryInstance = null;
   }
 }
 
@@ -272,8 +267,7 @@ function initGameUI() {
     renderer2d,
     currentRole,
     (enabled) => onActionModeToggle(enabled),
-    () => showMapCreator(currentGameId, gameMap.toJSON()),
-    () => openMapLibraryInGame()
+    () => showMapCreator(currentGameId, gameMap.toJSON())
   );
 
   // Player Roster – pass user/role info for ownership restrictions
@@ -457,10 +451,12 @@ function initGameUI() {
 
   // --- Turn update from server ---
   socket.onTurnUpdate((msg) => {
+    console.log('[main] onTurnUpdate received:', JSON.stringify(msg));
     applyTurnState(msg);
     if (turnTracker) {
       // When action mode is first enabled, ensure tracker has current player list
       if (msg.enabled && !turnTracker.enabled) {
+        console.log('[main] first enable — refreshing tracker players');
         turnTracker.setPlayers(players);
       }
       turnTracker.setTurnState(msg);
@@ -489,6 +485,7 @@ function initGameUI() {
 
   // --- Initiative sort from server ---
   socket.onInitiativeSort((msg) => {
+    console.log('[main] onInitiativeSort received:', JSON.stringify(msg));
     if (turnTracker && msg.sortedCharIds) {
       turnTracker.applySortOrder(msg.sortedCharIds);
     }

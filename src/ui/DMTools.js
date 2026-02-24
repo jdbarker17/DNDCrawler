@@ -14,7 +14,7 @@ export class DMTools {
    * @param {string} role – 'dm' | 'player'
    * @param {(enabled: boolean) => void} [onActionModeToggle] – callback when Action Mode is toggled
    */
-  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null, onOpenLibrary = null) {
+  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null) {
     this.gameMap = gameMap;
     this.renderer2d = renderer2d;
     this.enabled = false;
@@ -22,7 +22,6 @@ export class DMTools {
     this.role = role;
     this.onActionModeToggle = onActionModeToggle;
     this.onEditMap = onEditMap;
-    this.onOpenLibrary = onOpenLibrary;
     this.actionModeEnabled = false;
 
     // Only build UI for DM
@@ -54,7 +53,6 @@ export class DMTools {
       <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
       <div class="dm-divider"></div>
       <button class="dm-btn dm-edit-map-btn" id="dm-edit-map">Edit Map</button>
-      <button class="dm-btn dm-edit-map-btn" id="dm-map-library">Map Library</button>
     `;
     container.appendChild(this.toolbar);
 
@@ -104,11 +102,6 @@ export class DMTools {
     // Edit Map button
     this.toolbar.querySelector('#dm-edit-map').addEventListener('click', () => {
       if (this.onEditMap) this.onEditMap();
-    });
-
-    // Map Library button
-    this.toolbar.querySelector('#dm-map-library').addEventListener('click', () => {
-      if (this.onOpenLibrary) this.onOpenLibrary();
     });
 
     // Default: hidden
