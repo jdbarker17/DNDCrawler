@@ -66,6 +66,12 @@ export class MapCreator {
     this.hoverGridY = -1;
     this.hoverEdge = null; // 'N' | 'S' | 'E' | 'W' | null
 
+    // Drag-painting state
+    this.isPainting = false;
+    this.paintWallAdd = true; // true = adding walls, false = removing
+    this.lastPaintKey = null; // "gx,gy,edge" to avoid re-toggling same wall
+    this.paintAxis = null; // 'H' (N/S edges) or 'V' (E/W edges) — locks drag direction
+
     this._boundHandlers = {};
     this._buildUI();
     this._loadBackgroundImage();
@@ -259,8 +265,12 @@ export class MapCreator {
     });
     this.panel.querySelector('#mc-clear-solid').addEventListener('click', () => {
       for (let y = 0; y < this.gameMap.height; y++)
-        for (let x = 0; x < this.gameMap.width; x++)
-          this.gameMap.cells[y][x].solid = false;
+        for (let x = 0; x < this.gameMap.width; x++) {
+          const cell = this.gameMap.cells[y][x];
+          cell.solid = false;
+          cell.walls = 0;
+          cell.objects = [];
+        }
       this._render();
     });
     this.panel.querySelector('#mc-border-walls').addEventListener('click', () => {
@@ -490,6 +500,45 @@ export class MapCreator {
       e.preventDefault();
       return;
     }
+
+    // Left-click: start drag-painting for wall tool
+    if (e.button === 0 && this.activeTool === 'wall') {
+      const world = this._screenToWorld(sx, sy);
+      const gx = Math.floor(world.x);
+      const gy = Math.floor(world.y);
+      if (this.gameMap.inBounds(gx, gy)) {
+        const fx = world.x - gx;
+        const fy = world.y - gy;
+        const edge = this._getEdge(fx, fy);
+        if (edge) {
+          const cell = this.gameMap.getCell(gx, gy);
+          const flag = this._edgeToFlag(edge);
+          // Determine if we're adding or removing based on current state
+          this.paintWallAdd = !cell.hasWall(flag);
+          this.isPainting = true;
+          this.lastPaintKey = `${gx},${gy},${edge}`;
+          // Lock axis: N/S edges = horizontal wall lines, E/W edges = vertical wall lines
+          this.paintAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
+          this._applyWallPaint(gx, gy, edge);
+          this._render();
+          e.preventDefault();
+        }
+      }
+    }
+
+    // Left-click: start drag-erasing
+    if (e.button === 0 && this.activeTool === 'erase') {
+      const world = this._screenToWorld(sx, sy);
+      const gx = Math.floor(world.x);
+      const gy = Math.floor(world.y);
+      if (this.gameMap.inBounds(gx, gy)) {
+        this.isPainting = true;
+        this.lastPaintKey = `${gx},${gy}`;
+        this._eraseCell(gx, gy);
+        this._render();
+        e.preventDefault();
+      }
+    }
   }
 
   _onMouseMove(e) {
@@ -530,14 +579,35 @@ export class MapCreator {
     if (this.activeTool === 'wall' && this.gameMap.inBounds(gx, gy)) {
       const fx = world.x - gx;
       const fy = world.y - gy;
-      const threshold = 0.25;
-      if (fy < threshold) this.hoverEdge = 'N';
-      else if (fy > 1 - threshold) this.hoverEdge = 'S';
-      else if (fx < threshold) this.hoverEdge = 'W';
-      else if (fx > 1 - threshold) this.hoverEdge = 'E';
-      else this.hoverEdge = null;
+      const edge = this._getEdge(fx, fy);
+
+      // While drag-painting, only show and apply edges on the locked axis
+      if (this.isPainting && this.paintAxis && edge) {
+        const edgeAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
+        if (edgeAxis === this.paintAxis) {
+          this.hoverEdge = edge;
+          const key = `${gx},${gy},${edge}`;
+          if (key !== this.lastPaintKey) {
+            this.lastPaintKey = key;
+            this._applyWallPaint(gx, gy, edge);
+          }
+        } else {
+          this.hoverEdge = null;
+        }
+      } else {
+        this.hoverEdge = edge;
+      }
     } else {
       this.hoverEdge = null;
+    }
+
+    // Drag-erase across cells
+    if (this.isPainting && this.activeTool === 'erase' && this.gameMap.inBounds(gx, gy)) {
+      const key = `${gx},${gy}`;
+      if (key !== this.lastPaintKey) {
+        this.lastPaintKey = key;
+        this._eraseCell(gx, gy);
+      }
     }
 
     this._render();
@@ -551,6 +621,11 @@ export class MapCreator {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = '';
+    }
+    if (this.isPainting) {
+      this.isPainting = false;
+      this.lastPaintKey = null;
+      this.paintAxis = null;
     }
   }
 
@@ -575,6 +650,8 @@ export class MapCreator {
   _onCanvasClick(e) {
     if (this.isPanning || this.isDraggingImage) return;
     if (e.button !== 0) return;
+    // Wall and erase tools are handled by mousedown/mousemove drag-painting
+    if (this.activeTool === 'wall' || this.activeTool === 'erase') return;
 
     const rect = this.canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
@@ -588,9 +665,6 @@ export class MapCreator {
     const cell = this.gameMap.getCell(gx, gy);
 
     switch (this.activeTool) {
-      case 'wall':
-        this._handleWallClick(gx, gy, world.x - gx, world.y - gy);
-        break;
       case 'solid':
         cell.solid = !cell.solid;
         if (cell.solid) {
@@ -615,9 +689,7 @@ export class MapCreator {
           y: 0.5,
         });
         break;
-      case 'erase':
-        cell.objects = [];
-        break;
+      // erase is handled by drag-painting in mousedown/mousemove
     }
 
     this._render();
@@ -647,6 +719,57 @@ export class MapCreator {
     if (flag === WALL_S && y < map.height - 1) map.getCell(x, y + 1)?.toggleWall(WALL_N);
     if (flag === WALL_W && x > 0) map.getCell(x - 1, y)?.toggleWall(WALL_E);
     if (flag === WALL_E && x < map.width - 1) map.getCell(x + 1, y)?.toggleWall(WALL_W);
+  }
+
+  _eraseCell(gx, gy) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    cell.objects = [];
+    cell.walls = 0;
+    cell.solid = false;
+    this._clearMirroredWalls(gx, gy);
+  }
+
+  _clearMirroredWalls(x, y) {
+    const map = this.gameMap;
+    if (y > 0) { const n = map.getCell(x, y - 1); if (n && n.hasWall(WALL_S)) n.toggleWall(WALL_S); }
+    if (y < map.height - 1) { const s = map.getCell(x, y + 1); if (s && s.hasWall(WALL_N)) s.toggleWall(WALL_N); }
+    if (x > 0) { const w = map.getCell(x - 1, y); if (w && w.hasWall(WALL_E)) w.toggleWall(WALL_E); }
+    if (x < map.width - 1) { const e = map.getCell(x + 1, y); if (e && e.hasWall(WALL_W)) e.toggleWall(WALL_W); }
+  }
+
+  _getEdge(fx, fy) {
+    const threshold = 0.25;
+    if (fy < threshold) return 'N';
+    if (fy > 1 - threshold) return 'S';
+    if (fx < threshold) return 'W';
+    if (fx > 1 - threshold) return 'E';
+    return null;
+  }
+
+  _edgeToFlag(edge) {
+    switch (edge) {
+      case 'N': return WALL_N;
+      case 'S': return WALL_S;
+      case 'E': return WALL_E;
+      case 'W': return WALL_W;
+    }
+    return null;
+  }
+
+  _applyWallPaint(gx, gy, edge) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    const flag = this._edgeToFlag(edge);
+    if (flag === null) return;
+    const has = cell.hasWall(flag);
+    if (this.paintWallAdd && !has) {
+      cell.toggleWall(flag);
+      this._mirrorWall(gx, gy, flag);
+    } else if (!this.paintWallAdd && has) {
+      cell.toggleWall(flag);
+      this._mirrorWall(gx, gy, flag);
+    }
   }
 
   // --- Library ---
