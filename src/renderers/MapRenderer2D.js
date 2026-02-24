@@ -38,6 +38,19 @@ export class MapRenderer2D {
 
     // Solid-block fill colour
     this.solidColor = '#111';
+
+    // Background image (loaded from gameMap.backgroundImage data URL)
+    this.bgImage = null;
+    this._loadBgImage();
+  }
+
+  /** Load background image from the gameMap data URL (if present). */
+  _loadBgImage() {
+    if (this.gameMap.backgroundImage) {
+      const img = new Image();
+      img.onload = () => { this.bgImage = img; };
+      img.src = this.gameMap.backgroundImage;
+    }
   }
 
   resize() {
@@ -74,6 +87,18 @@ export class MapRenderer2D {
     ctx.clearRect(0, 0, w, h);
     ctx.save();
     ctx.translate(-camera.x, -camera.y);
+
+    // --- Background image (DM reference overlay) ---
+    if (this.bgImage && this.gameMap.backgroundImage) {
+      ctx.save();
+      ctx.globalAlpha = this.gameMap.bgOpacity;
+      const imgW = this.bgImage.width * this.gameMap.bgScale * (ts / this.tileSize);
+      const imgH = this.bgImage.height * this.gameMap.bgScale * (ts / this.tileSize);
+      const imgX = this.gameMap.bgOffsetX * ts;
+      const imgY = this.gameMap.bgOffsetY * ts;
+      ctx.drawImage(this.bgImage, imgX, imgY, imgW, imgH);
+      ctx.restore();
+    }
 
     // --- Floor tiles and solid blocks ---
     for (let y = 0; y < gameMap.height; y++) {
