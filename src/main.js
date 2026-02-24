@@ -16,6 +16,8 @@ import { TurnTracker } from './ui/TurnTracker.js';
 import { ChatPanel } from './ui/ChatPanel.js';
 import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
+import { MapCreator } from './ui/MapCreator.js';
+import { MapLibrary } from './ui/MapLibrary.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
   getMessages,
@@ -32,11 +34,14 @@ let players = [];
 let activePlayer = null;
 let authScreen = null;
 let gameLobby = null;
+let mapCreator = null;
+let mapLibraryInstance = null;
 
 // --- DOM containers ---
 const authContainer = document.getElementById('auth-container');
 const lobbyContainer = document.getElementById('lobby-container');
 const gameContainer = document.getElementById('game-container');
+const mapCreatorContainer = document.getElementById('map-creator-container');
 
 // --- Boot: check existing session ---
 function boot() {
@@ -78,7 +83,70 @@ function showLobby() {
       logout();
       currentUser = null;
       showAuth();
+    },
+    (game) => {
+      // Edit Map — fetch game state then open editor
+      currentGameId = game.id;
+      currentRole = 'dm';
+      getGameState(game.id).then(state => {
+        showMapCreator(game.id, state.map_data);
+      }).catch(err => {
+        console.error('Failed to load game for map editing:', err);
+      });
     }
+  );
+}
+
+// --- Map Creator ---
+function showMapCreator(gameId, existingMapData) {
+  hideAll();
+  mapCreatorContainer.style.display = 'block';
+
+  const existingMap = existingMapData ? GameMap.fromJSON(existingMapData) : null;
+
+  mapCreator = new MapCreator(
+    mapCreatorContainer,
+    existingMap,
+    (mapData) => {
+      // Save map to server then go to the game
+      saveMapData(gameId, mapData).then(() => {
+        loadGame(gameId);
+      }).catch(err => {
+        console.error('Failed to save map:', err);
+        alert('Failed to save map.');
+      });
+    },
+    () => {
+      // Cancel — go back to lobby
+      showLobby();
+    }
+  );
+}
+
+// --- In-game Map Library ---
+function openMapLibraryInGame() {
+  if (mapLibraryInstance) return; // already open
+
+  mapLibraryInstance = new MapLibrary(
+    gameContainer,
+    (mapData) => {
+      // Load the selected map into the current game
+      saveMapData(currentGameId, mapData).then(() => {
+        mapLibraryInstance.destroy();
+        mapLibraryInstance = null;
+        loadGame(currentGameId);
+      }).catch(err => {
+        console.error('Failed to apply map:', err);
+        alert('Failed to apply map to game.');
+      });
+    },
+    () => {
+      if (mapLibraryInstance) {
+        mapLibraryInstance.destroy();
+        mapLibraryInstance = null;
+      }
+    },
+    null // load-only mode from in-game
   );
 }
 
@@ -127,7 +195,16 @@ function hideAll() {
   authContainer.style.display = 'none';
   lobbyContainer.style.display = 'none';
   gameContainer.style.display = 'none';
+  mapCreatorContainer.style.display = 'none';
   stopGameLoop();
+  if (mapCreator) {
+    mapCreator.destroy();
+    mapCreator = null;
+  }
+  if (mapLibraryInstance) {
+    mapLibraryInstance.destroy();
+    mapLibraryInstance = null;
+  }
 }
 
 // --- Handle auth expiry ---
@@ -194,7 +271,9 @@ function initGameUI() {
     gameMap,
     renderer2d,
     currentRole,
-    (enabled) => onActionModeToggle(enabled)
+    (enabled) => onActionModeToggle(enabled),
+    () => showMapCreator(currentGameId, gameMap.toJSON()),
+    () => openMapLibraryInGame()
   );
 
   // Player Roster – pass user/role info for ownership restrictions
