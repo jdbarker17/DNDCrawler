@@ -32,11 +32,11 @@ export class MonsterPanel {
       </button>
       <div class="monster-panel-body" id="monster-panel-body" style="display:none">
         <div class="monster-panel-presets">
-          <button class="monster-preset-btn" data-name="Goblin" data-hp="7" data-color="#2d8a3e" data-speed="30">Goblin</button>
-          <button class="monster-preset-btn" data-name="Skeleton" data-hp="13" data-color="#c8c8c8" data-speed="30">Skeleton</button>
-          <button class="monster-preset-btn" data-name="Orc" data-hp="15" data-color="#5a7a3a" data-speed="30">Orc</button>
-          <button class="monster-preset-btn" data-name="Wolf" data-hp="11" data-color="#7a6a5a" data-speed="40">Wolf</button>
-          <button class="monster-preset-btn" data-name="Dragon" data-hp="178" data-color="#8b1a1a" data-speed="40">Dragon</button>
+          <button class="monster-preset-btn" data-name="Goblin" data-hp="7" data-color="#2d8a3e" data-speed="30" data-creature="goblin" data-size="small">Goblin</button>
+          <button class="monster-preset-btn" data-name="Skeleton" data-hp="13" data-color="#c8c8c8" data-speed="30" data-creature="skeleton" data-size="medium">Skeleton</button>
+          <button class="monster-preset-btn" data-name="Orc" data-hp="15" data-color="#5a7a3a" data-speed="30" data-creature="orc" data-size="medium">Orc</button>
+          <button class="monster-preset-btn" data-name="Wolf" data-hp="11" data-color="#7a6a5a" data-speed="40" data-creature="wolf" data-size="medium">Wolf</button>
+          <button class="monster-preset-btn" data-name="Dragon" data-hp="178" data-color="#8b1a1a" data-speed="40" data-creature="dragon" data-size="large">Dragon</button>
         </div>
         <div class="monster-field-row">
           <input type="text" id="mp-name" placeholder="Monster name" class="monster-field" />
@@ -59,6 +59,21 @@ export class MonsterPanel {
             <span>Image</span>
             <input type="file" id="mp-image" accept="image/*" class="monster-file-input" />
           </label>
+        </div>
+        <div class="monster-field-row">
+          <select id="mp-creature" class="monster-field">
+            <option value="humanoid">Humanoid</option>
+            <option value="skeleton">Skeleton</option>
+            <option value="goblin">Goblin</option>
+            <option value="orc">Orc</option>
+            <option value="wolf">Wolf</option>
+            <option value="dragon">Dragon</option>
+          </select>
+          <select id="mp-size" class="monster-field">
+            <option value="small">Small (1sq)</option>
+            <option value="medium" selected>Medium (1sq)</option>
+            <option value="large">Large (2×2)</option>
+          </select>
         </div>
         <div class="monster-img-preview" id="mp-img-preview" style="display:none">
           <img id="mp-img-thumb" />
@@ -87,6 +102,8 @@ export class MonsterPanel {
         this.el.querySelector('#mp-hp').value = btn.dataset.hp;
         this.el.querySelector('#mp-color').value = btn.dataset.color;
         this.el.querySelector('#mp-speed').value = btn.dataset.speed;
+        this.el.querySelector('#mp-creature').value = btn.dataset.creature || 'humanoid';
+        this.el.querySelector('#mp-size').value = btn.dataset.size || 'medium';
       });
     });
 
@@ -157,6 +174,9 @@ export class MonsterPanel {
       return;
     }
 
+    const creature_type = this.el.querySelector('#mp-creature').value;
+    const size = this.el.querySelector('#mp-size').value;
+
     const data = {
       name,
       hp,
@@ -164,6 +184,8 @@ export class MonsterPanel {
       color,
       speed,
       monster_image: this._monsterImageData || null,
+      creature_type,
+      size,
     };
 
     if (this.onAddMonster) {
@@ -175,6 +197,8 @@ export class MonsterPanel {
     this.el.querySelector('#mp-hp').value = '';
     this.el.querySelector('#mp-color').value = '#e74c3c';
     this.el.querySelector('#mp-speed').value = '30';
+    this.el.querySelector('#mp-creature').value = 'humanoid';
+    this.el.querySelector('#mp-size').value = 'medium';
     this.el.querySelector('#mp-image').value = '';
     this._monsterImageData = null;
     this.el.querySelector('#mp-img-preview').style.display = 'none';

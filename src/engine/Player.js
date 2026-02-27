@@ -33,11 +33,28 @@ export class Player {
     this.maxHp = null;
     this.monsterImage = null;    // data URL for custom monster sprite
     this._monsterImageObj = null; // cached HTMLImageElement for rendering
+    this.creatureType = 'humanoid'; // skeleton, goblin, orc, wolf, dragon, humanoid
+    this.size = 'medium';           // small, medium, large
   }
 
   /** Movement range in cells (each cell = 5ft). */
   get dndSpeedCells() {
     return this.dndSpeed / 5;
+  }
+
+  /** Token radius multiplier for 2D map rendering. Large = 2×2 squares. */
+  get tokenRadius() {
+    return this.size === 'large' ? 0.6 : 0.3;
+  }
+
+  /** Collision radius based on creature size. */
+  get collisionRadius() {
+    return this.size === 'large' ? 0.4 : 0.2;
+  }
+
+  /** Sprite scale multiplier for 3D first-person rendering. Large = 4x. */
+  get spriteScale() {
+    return this.size === 'large' ? 4.0 : 1.0;
   }
 
   /** Create a Player from a server character record. */
@@ -60,6 +77,11 @@ export class Player {
       p._monsterImageObj = new Image();
       p._monsterImageObj.src = p.monsterImage;
     }
+
+    // Creature type and size
+    p.creatureType = data.creature_type || 'humanoid';
+    p.size = data.size || 'medium';
+    p.radius = p.collisionRadius; // override default based on size
 
     return p;
   }

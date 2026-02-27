@@ -5,6 +5,7 @@
  */
 
 import { WALL_N, WALL_S, WALL_E, WALL_W } from '../engine/GameMap.js';
+import { drawCreature } from './CreatureSprites.js';
 
 /** Parse a hex colour string (#rrggbb) to { r, g, b }. */
 function hexToRgb(hex) {
@@ -311,7 +312,8 @@ export class RaycastRenderer {
       const fogFactor = Math.min(0.9, sp.dist * this.fogDensity);
 
       if (sp.type === 'player') {
-        const spriteH = (this.wallHeight * 0.8 / perpDist) * projDist;
+        const baseH = (this.wallHeight * 0.8 / perpDist) * projDist;
+        const spriteH = baseH * (sp.player.spriteScale ?? 1);
         const spriteW = spriteH * 0.6;
         const screenY = screenH / 2;
 
@@ -320,9 +322,10 @@ export class RaycastRenderer {
         // Monster with custom image: draw scaled image sprite
         if (sp.player.isMonster && sp.player._monsterImageObj && sp.player._monsterImageObj.complete) {
           const imgW = spriteH * 0.8;
-          const imgH = spriteH * 0.8;
+          const imgH = spriteH * 1.2;
           const imgX = screenX - imgW / 2;
-          const imgY = screenY - imgH * 0.3;
+          const floorY = screenY + baseH * 0.3; // ground plane where feet meet floor
+          const imgY = floorY - imgH;            // bottom anchored to floor
           ctx.drawImage(sp.player._monsterImageObj, imgX, imgY, imgW, imgH);
 
           // Name label above monster image
@@ -338,59 +341,34 @@ export class RaycastRenderer {
           ctx.fillStyle = '#e74c3c';
           ctx.fillText(sp.player.name, screenX, nameY + 2);
         } else {
-          // Draw player/monster as a coloured figure with token emoji and name
-
-          // Body silhouette (rounded rectangle)
-          const bodyX = screenX - spriteW / 2;
-          const bodyY = screenY - spriteH * 0.3;
-          const bodyH = spriteH * 0.6;
-
           const monsterColor = (sp.player.isMonster && this.role !== 'dm') ? '#e74c3c' : sp.player.color;
-          ctx.fillStyle = monsterColor;
-          ctx.beginPath();
-          const r = spriteW * 0.3;
-          ctx.moveTo(bodyX + r, bodyY);
-          ctx.lineTo(bodyX + spriteW - r, bodyY);
-          ctx.quadraticCurveTo(bodyX + spriteW, bodyY, bodyX + spriteW, bodyY + r);
-          ctx.lineTo(bodyX + spriteW, bodyY + bodyH - r);
-          ctx.quadraticCurveTo(bodyX + spriteW, bodyY + bodyH, bodyX + spriteW - r, bodyY + bodyH);
-          ctx.lineTo(bodyX + r, bodyY + bodyH);
-          ctx.quadraticCurveTo(bodyX, bodyY + bodyH, bodyX, bodyY + bodyH - r);
-          ctx.lineTo(bodyX, bodyY + r);
-          ctx.quadraticCurveTo(bodyX, bodyY, bodyX + r, bodyY);
-          ctx.closePath();
-          ctx.fill();
 
-          // Head circle
-          const headR = spriteW * 0.35;
-          ctx.beginPath();
-          ctx.arc(screenX, bodyY - headR * 0.5, headR, 0, Math.PI * 2);
-          ctx.fillStyle = monsterColor;
-          ctx.fill();
-          ctx.strokeStyle = sp.player.isMonster ? 'rgba(231,76,60,0.6)' : 'rgba(255,255,255,0.4)';
-          ctx.lineWidth = Math.max(1, spriteW * 0.05);
-          ctx.stroke();
+          // Monster with creature type: use procedural creature sprite
+          if (sp.player.isMonster && sp.player.creatureType) {
+            drawCreature(ctx, sp.player.creatureType, screenX, screenY, spriteW, spriteH, monsterColor);
+          } else {
+            // Regular player: humanoid silhouette with token emoji
+            drawCreature(ctx, 'humanoid', screenX, screenY, spriteW, spriteH, monsterColor);
 
-          // Token emoji on body
-          const emojiSize = Math.max(10, spriteH * 0.3);
-          ctx.font = `${emojiSize}px serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(sp.label, screenX, bodyY + bodyH * 0.4);
+            // Token emoji on body
+            const emojiSize = Math.max(10, spriteH * 0.3);
+            ctx.font = `${emojiSize}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(sp.label, screenX, screenY - spriteH * 0.3 + spriteH * 0.6 * 0.4);
+          }
 
-          // Name label above head
+          // Name label above sprite
           const nameSize = Math.max(8, Math.min(16, spriteH * 0.12));
           ctx.font = `bold ${nameSize}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
 
-          // Name background
           const nameWidth = ctx.measureText(sp.player.name).width + 8;
-          const nameY = bodyY - headR * 0.5 - headR - 4;
+          const nameY = screenY - spriteH * 0.5 - 4;
           ctx.fillStyle = 'rgba(0,0,0,0.6)';
           ctx.fillRect(screenX - nameWidth / 2, nameY - nameSize, nameWidth, nameSize + 4);
 
-          // Name text
           ctx.fillStyle = sp.player.isMonster ? '#e74c3c' : sp.player.color;
           ctx.fillText(sp.player.name, screenX, nameY + 2);
         }
