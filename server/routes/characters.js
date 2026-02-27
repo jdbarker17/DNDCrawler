@@ -34,7 +34,7 @@ router.post('/games/:gameId/characters', (req, res) => {
     return res.status(403).json({ error: 'You are not a member of this game' });
   }
 
-  const { name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image, creature_type, size } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Character name is required' });
@@ -49,8 +49,8 @@ router.post('/games/:gameId/characters', (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO characters (user_id, game_id, name, class_name, color, token, x, y, angle, speed, is_monster, hp, max_hp, monster_image, creature_type, size)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.user.id,
     gameId,
@@ -65,7 +65,9 @@ router.post('/games/:gameId/characters', (req, res) => {
     is_monster ? 1 : 0,
     hp ?? null,
     max_hp ?? null,
-    monster_image || null
+    monster_image || null,
+    creature_type || 'humanoid',
+    size || 'medium'
   );
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(result.lastInsertRowid);
@@ -95,7 +97,7 @@ router.put('/characters/:id', (req, res) => {
     return res.status(403).json({ error: 'Not authorized to update this character' });
   }
 
-  const { name, class_name, color, token, x, y, angle, speed, hp, max_hp, monster_image } = req.body;
+  const { name, class_name, color, token, x, y, angle, speed, hp, max_hp, monster_image, creature_type, size } = req.body;
 
   db.prepare(`
     UPDATE characters SET
@@ -109,7 +111,9 @@ router.put('/characters/:id', (req, res) => {
       speed = COALESCE(?, speed),
       hp = COALESCE(?, hp),
       max_hp = COALESCE(?, max_hp),
-      monster_image = COALESCE(?, monster_image)
+      monster_image = COALESCE(?, monster_image),
+      creature_type = COALESCE(?, creature_type),
+      size = COALESCE(?, size)
     WHERE id = ?
   `).run(
     name ?? null,
@@ -123,6 +127,8 @@ router.put('/characters/:id', (req, res) => {
     hp ?? null,
     max_hp ?? null,
     monster_image ?? null,
+    creature_type ?? null,
+    size ?? null,
     charId
   );
 

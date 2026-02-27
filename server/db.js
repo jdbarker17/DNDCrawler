@@ -107,4 +107,13 @@ try {
   db.exec(`ALTER TABLE characters ADD COLUMN monster_image TEXT DEFAULT NULL`);
 } catch (e) { /* Column already exists */ }
 
+// Creature type and size columns
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN creature_type TEXT DEFAULT 'humanoid'`);
+} catch (e) { /* Column already exists */ }
+
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN size TEXT DEFAULT 'medium'`);
+} catch (e) { /* Column already exists */ }
+
 export default db;

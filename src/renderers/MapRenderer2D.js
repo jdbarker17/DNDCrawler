@@ -188,7 +188,7 @@ export class MapRenderer2D {
     for (const player of players) {
       const px = player.x * ts;
       const py = player.y * ts;
-      const r = ts * 0.3;
+      const r = ts * (player.tokenRadius ?? 0.3);
       const isActiveTurn = actionMode && turnActiveCharId != null && player.characterId === turnActiveCharId;
       const isDimmed = actionMode && turnActiveCharId != null && !isActiveTurn;
 
