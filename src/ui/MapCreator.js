@@ -46,6 +46,7 @@ export class MapCreator {
 
     this.activeTool = 'wall';
     this.selectedObject = OBJECT_PALETTE[0];
+    this.wallColorBrush = '#6b6b6b';
     this.tileSize = 40;
 
     // Camera
@@ -118,22 +119,6 @@ export class MapCreator {
             <label>Scale <input type="range" id="mc-bg-scale" min="10" max="300" value="${Math.round(this.gameMap.bgScale * 100)}"></label>
             <div class="mc-hint">Shift+drag to reposition image</div>
           </div>
-          <!-- Wall Color -->
-          <div class="mc-panel">
-            <div class="mc-panel-title">Wall Color</div>
-            <div class="mc-wall-presets">
-              <button class="mc-wall-preset" data-color="" title="Default"
-                      style="background:#d4c9a8;border:2px solid #888"></button>
-              <button class="mc-wall-preset" data-color="#7a5c3a" title="Wood"
-                      style="background:#7a5c3a"></button>
-              <button class="mc-wall-preset" data-color="#3a3a3a" title="Dark Stone"
-                      style="background:#3a3a3a"></button>
-              <button class="mc-wall-preset" data-color="#c4a86b" title="Sandstone"
-                      style="background:#c4a86b"></button>
-              <input type="color" id="mc-wall-color" class="mc-wall-color-picker"
-                     value="${this.gameMap.wallColor || '#d4c9a8'}" title="Custom wall color">
-            </div>
-          </div>
           <!-- Tools -->
           <div class="mc-panel">
             <div class="mc-panel-title">Tools</div>
@@ -154,6 +139,22 @@ export class MapCreator {
               ${OBJECT_PALETTE.map((o, i) =>
                 `<button class="mc-obj-btn${i === 0 ? ' active' : ''}" data-idx="${i}" title="${o.label}">${o.sprite}</button>`
               ).join('')}
+            </div>
+          </div>
+          <!-- Wall Color Palette (shown when Wall tool is active) -->
+          <div class="mc-panel" id="mc-wallcolor-palette">
+            <div class="mc-panel-title">Wall Color</div>
+            <div class="mc-wall-presets">
+              <button class="mc-wall-preset active" data-color="#6b6b6b" title="Default (Gray)"
+                      style="background:#6b6b6b"></button>
+              <button class="mc-wall-preset" data-color="#7a5c3a" title="Wood"
+                      style="background:#7a5c3a"></button>
+              <button class="mc-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                      style="background:#3a3a3a"></button>
+              <button class="mc-wall-preset" data-color="#c4a86b" title="Sandstone"
+                      style="background:#c4a86b"></button>
+              <input type="color" id="mc-wall-color" class="mc-wall-color-picker"
+                     value="#6b6b6b" title="Custom wall color">
             </div>
           </div>
           <!-- Map Library -->
@@ -233,20 +234,20 @@ export class MapCreator {
       this._render();
     });
 
-    // Wall color presets
+    // Wall color presets (per-cell painting brush)
     this.panel.querySelectorAll('.mc-wall-preset').forEach(btn => {
       btn.addEventListener('click', () => {
-        const color = btn.dataset.color;
-        this.gameMap.wallColor = color;
-        this.panel.querySelector('#mc-wall-color').value = color || '#d4c9a8';
-        this._render();
+        this.panel.querySelectorAll('.mc-wall-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.wallColorBrush = btn.dataset.color;
+        this.panel.querySelector('#mc-wall-color').value = this.wallColorBrush;
       });
     });
 
     // Wall color custom picker
     this.panel.querySelector('#mc-wall-color').addEventListener('input', (e) => {
-      this.gameMap.wallColor = e.target.value;
-      this._render();
+      this.wallColorBrush = e.target.value;
+      this.panel.querySelectorAll('.mc-wall-preset').forEach(b => b.classList.remove('active'));
     });
 
     // Tool selection
@@ -258,6 +259,8 @@ export class MapCreator {
         this._updateToolHint();
         this.panel.querySelector('#mc-object-palette').style.display =
           this.activeTool === 'object' ? 'flex' : 'none';
+        this.panel.querySelector('#mc-wallcolor-palette').style.display =
+          this.activeTool === 'wall' ? 'flex' : 'none';
       });
     });
 
@@ -282,7 +285,8 @@ export class MapCreator {
       this.panel.querySelector('#mc-height').value = h;
       this.panel.querySelector('#mc-bg-opacity').value = 50;
       this.panel.querySelector('#mc-bg-scale').value = 100;
-      this.panel.querySelector('#mc-wall-color').value = '#d4c9a8';
+      this.wallColorBrush = '#6b6b6b';
+      this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
       this.panel.querySelector('#mc-clear-img').style.display = 'none';
       this.camera = { x: 0, y: 0, zoom: 1 };
       this._render();
@@ -332,7 +336,7 @@ export class MapCreator {
 
   _updateToolHint() {
     const hints = {
-      wall: 'Click cell edges to toggle walls',
+      wall: 'Click edges to toggle walls (uses selected color)',
       solid: 'Click cells to toggle solid/passable',
       floor: 'Click cells to cycle floor color',
       light: 'Click cells to cycle light level',
@@ -487,6 +491,7 @@ export class MapCreator {
           floorColor: src.floorColor,
           ceilingColor: src.ceilingColor,
           wallColor: src.wallColor,
+          wallEdgeColors: src.wallEdgeColors ? { ...src.wallEdgeColors } : null,
           light: src.light,
           visible: src.visible,
           solid: src.solid,
@@ -534,7 +539,7 @@ export class MapCreator {
       return;
     }
 
-    // Left-click: start drag-painting for wall tool
+    // Left-click: start drag-painting for wall tool (edges only)
     if (e.button === 0 && this.activeTool === 'wall') {
       const world = this._screenToWorld(sx, sy);
       const gx = Math.floor(world.x);
@@ -544,15 +549,14 @@ export class MapCreator {
         const fy = world.y - gy;
         const edge = this._getEdge(fx, fy);
         if (edge) {
-          const cell = this.gameMap.getCell(gx, gy);
-          const flag = this._edgeToFlag(edge);
-          // Determine if we're adding or removing based on current state
-          this.paintWallAdd = !cell.hasWall(flag);
+          // Always add/repaint — clicking existing walls recolors them
+          this.paintWallAdd = true;
           this.isPainting = true;
           this.lastPaintKey = `${gx},${gy},${edge}`;
           // Lock axis: N/S edges = horizontal wall lines, E/W edges = vertical wall lines
           this.paintAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
           this._applyWallPaint(gx, gy, edge);
+          this._applyEdgeColor(gx, gy, edge, this.wallColorBrush);
           this._render();
           e.preventDefault();
         }
@@ -572,6 +576,7 @@ export class MapCreator {
         e.preventDefault();
       }
     }
+
   }
 
   _onMouseMove(e) {
@@ -623,6 +628,10 @@ export class MapCreator {
           if (key !== this.lastPaintKey) {
             this.lastPaintKey = key;
             this._applyWallPaint(gx, gy, edge);
+            // Set per-edge wall color when adding walls
+            if (this.paintWallAdd) {
+              this._applyEdgeColor(gx, gy, edge, this.wallColorBrush);
+            }
           }
         } else {
           this.hoverEdge = null;
@@ -805,6 +814,34 @@ export class MapCreator {
     }
   }
 
+  /**
+   * Set per-edge wall color on a cell and mirror to the adjacent cell's opposite edge.
+   */
+  _applyEdgeColor(gx, gy, edge, color) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    cell.wallEdgeColors[edge] = color;
+
+    // Mirror to adjacent cell's opposite edge
+    const map = this.gameMap;
+    if (edge === 'N' && gy > 0) {
+      const adj = map.getCell(gx, gy - 1);
+      if (adj) adj.wallEdgeColors.S = color;
+    }
+    if (edge === 'S' && gy < map.height - 1) {
+      const adj = map.getCell(gx, gy + 1);
+      if (adj) adj.wallEdgeColors.N = color;
+    }
+    if (edge === 'W' && gx > 0) {
+      const adj = map.getCell(gx - 1, gy);
+      if (adj) adj.wallEdgeColors.E = color;
+    }
+    if (edge === 'E' && gx < map.width - 1) {
+      const adj = map.getCell(gx + 1, gy);
+      if (adj) adj.wallEdgeColors.W = color;
+    }
+  }
+
   // --- Library ---
 
   _openLibrary(mode) {
@@ -825,7 +862,8 @@ export class MapCreator {
         this.panel.querySelector('#mc-height').value = this.gameMap.height;
         this.panel.querySelector('#mc-bg-opacity').value = Math.round(this.gameMap.bgOpacity * 100);
         this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
-        this.panel.querySelector('#mc-wall-color').value = this.gameMap.wallColor || '#d4c9a8';
+        this.wallColorBrush = '#6b6b6b';
+        this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
         this._render();
       },
       () => {
@@ -919,28 +957,33 @@ export class MapCreator {
       ctx.stroke();
     }
 
-    // --- Walls ---
-    ctx.strokeStyle = gameMap.wallColor || '#d4c9a8';
+    // --- Walls (per-edge colors for DM painting) ---
     ctx.lineWidth = 3 * z;
     ctx.lineCap = 'round';
+    const defaultWallColor = '#6b6b6b';
 
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
         if (cell.solid) continue;
+        const ec = cell.wallEdgeColors;
         const px = x * ts;
         const py = y * ts;
 
         if (cell.hasWall(WALL_N)) {
+          ctx.strokeStyle = ec.N || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke();
         }
         if (cell.hasWall(WALL_S)) {
+          ctx.strokeStyle = ec.S || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_W)) {
+          ctx.strokeStyle = ec.W || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_E)) {
+          ctx.strokeStyle = ec.E || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
       }

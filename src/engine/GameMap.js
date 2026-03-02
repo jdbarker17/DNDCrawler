@@ -18,6 +18,7 @@ export class Cell {
     floorColor = '#3a3a2a',
     ceilingColor = '#1a1a1a',
     wallColor = '#6b6b6b',
+    wallEdgeColors = null,
     objects = [],
     light = 1.0,
     visible = true,
@@ -27,6 +28,7 @@ export class Cell {
     this.floorColor = floorColor;
     this.ceilingColor = ceilingColor;
     this.wallColor = wallColor;
+    this.wallEdgeColors = wallEdgeColors || {};  // { N?: string, S?: string, E?: string, W?: string }
     this.objects = objects;        // array of { type, sprite, x, y }
     this.light = light;           // 0..1 ambient light multiplier
     this.visible = visible;       // DM can hide cells entirely
@@ -132,16 +134,23 @@ export class GameMap {
       bgOpacity: this.bgOpacity,
       wallColor: this.wallColor,
       cells: this.cells.map(row =>
-        row.map(c => ({
-          walls: c.walls,
-          floorColor: c.floorColor,
-          ceilingColor: c.ceilingColor,
-          wallColor: c.wallColor,
-          light: c.light,
-          visible: c.visible,
-          solid: c.solid,
-          objects: c.objects,
-        }))
+        row.map(c => {
+          const out = {
+            walls: c.walls,
+            floorColor: c.floorColor,
+            ceilingColor: c.ceilingColor,
+            wallColor: c.wallColor,
+            light: c.light,
+            visible: c.visible,
+            solid: c.solid,
+            objects: c.objects,
+          };
+          // Only include per-edge colors if any have been set
+          if (c.wallEdgeColors && Object.keys(c.wallEdgeColors).length > 0) {
+            out.wallEdgeColors = c.wallEdgeColors;
+          }
+          return out;
+        })
       ),
     };
   }

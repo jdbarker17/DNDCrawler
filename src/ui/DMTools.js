@@ -503,20 +503,22 @@ export class DMTools {
       }
     }
 
-    // Walls
-    ctx.strokeStyle = '#d4c9a8';
+    // Walls (per-edge colors)
     ctx.lineWidth = Math.max(1, ts * 0.06);
+    const mwc = mapData.wallColor || '';
     for (let y = 0; y < mapH; y++) {
       for (let x = 0; x < mapW; x++) {
         const cell = cells[y][x];
+        const ec = cell.wallEdgeColors || {};
+        const base = cell.wallColor || '#d4c9a8';
         const px = x * ts;
         const py = y * ts;
         const w = cell.walls || 0;
 
-        if (w & 0b0001) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke(); }           // N
-        if (w & 0b0010) { ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // S
-        if (w & 0b0100) { ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // E
-        if (w & 0b1000) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke(); }           // W
+        if (w & 0b0001) { ctx.strokeStyle = mwc || ec.N || base; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke(); }           // N
+        if (w & 0b0010) { ctx.strokeStyle = mwc || ec.S || base; ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // S
+        if (w & 0b0100) { ctx.strokeStyle = mwc || ec.E || base; ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // E
+        if (w & 0b1000) { ctx.strokeStyle = mwc || ec.W || base; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke(); }           // W
       }
     }
   }

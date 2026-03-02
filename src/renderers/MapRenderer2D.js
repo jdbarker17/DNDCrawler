@@ -151,27 +151,33 @@ export class MapRenderer2D {
     }
 
     // --- Walls (only on non-solid cells, where a wall faces into open space) ---
-    ctx.strokeStyle = this.gameMap.wallColor || this.wallColor;
     ctx.lineWidth = this.wallThickness * z;
     ctx.lineCap = 'round';
+
+    const mapWallColor = this.gameMap.wallColor;
 
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
         if (cell.solid) continue; // solid cells are already visually filled
+        const ec = cell.wallEdgeColors || {};
         const px = x * ts;
         const py = y * ts;
 
         if (cell.hasWall(WALL_N)) {
+          ctx.strokeStyle = mapWallColor || ec.N || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke();
         }
         if (cell.hasWall(WALL_S)) {
+          ctx.strokeStyle = mapWallColor || ec.S || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_W)) {
+          ctx.strokeStyle = mapWallColor || ec.W || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_E)) {
+          ctx.strokeStyle = mapWallColor || ec.E || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
       }

@@ -158,9 +158,11 @@ export class RaycastRenderer {
       const lineHeight = (this.wallHeight / perpDist) * (h / (2 * Math.tan(halfFov)));
       const drawStart = (h - lineHeight) / 2;
 
-      // Wall colour from the cell, shaded by distance and cell light
+      // Wall colour from per-edge color, falling back to cell default, shaded by distance
       const cellLight = result.cell ? result.cell.light : 1;
-      const wallColorBase = this.gameMap.wallColor || (result.cell ? result.cell.wallColor : '#6b6b6b');
+      const ec = result.cell?.wallEdgeColors;
+      const edgeColor = (ec && result.wallEdge) ? ec[result.wallEdge] : null;
+      const wallColorBase = this.gameMap.wallColor || edgeColor || (result.cell ? result.cell.wallColor : '#6b6b6b');
 
       // Side shading: walls hit on Y-axis are slightly darker
       const sideFactor = result.side === 1 ? 0.7 : 1.0;
@@ -259,18 +261,22 @@ export class RaycastRenderer {
         if (stepX > 0) {
           // Moved east: check previous cell's east wall or current cell's west wall
           if (prevCell?.hasWall(WALL_E) || cell?.hasWall(WALL_W)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'W' : 'E';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         } else {
           // Moved west
           if (prevCell?.hasWall(WALL_W) || cell?.hasWall(WALL_E)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'E' : 'W';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         }
 
         // Out of bounds = wall
         if (!this.gameMap.inBounds(mapX, mapY)) {
-          return { distance, side, cell: null };
+          return { distance, side, cell: null, wallEdge: null };
         }
       } else {
         distance = tMaxY;
@@ -283,16 +289,20 @@ export class RaycastRenderer {
 
         if (stepY > 0) {
           if (prevCell?.hasWall(WALL_S) || cell?.hasWall(WALL_N)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'N' : 'S';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         } else {
           if (prevCell?.hasWall(WALL_N) || cell?.hasWall(WALL_S)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'S' : 'N';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         }
 
         if (!this.gameMap.inBounds(mapX, mapY)) {
-          return { distance, side, cell: null };
+          return { distance, side, cell: null, wallEdge: null };
         }
       }
 
