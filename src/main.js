@@ -15,6 +15,7 @@ import { MonsterPanel } from './ui/MonsterPanel.js';
 import { PlayerRoster } from './ui/PlayerRoster.js';
 import { TurnTracker } from './ui/TurnTracker.js';
 import { ChatPanel } from './ui/ChatPanel.js';
+import { DiceRoller } from './ui/DiceRoller.js';
 import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
 import { MapCreator } from './ui/MapCreator.js';
@@ -224,6 +225,7 @@ let monsterPanel = null;
 let roster = null;
 let turnTracker = null;
 let chatPanel = null;
+let diceRoller = null;
 let animFrameId = null;
 let saveTimer = 0;
 
@@ -290,6 +292,10 @@ function initGameUI() {
       // Only allow selecting characters the user can control
       if (canControl(player)) {
         activePlayer = player;
+        // Update dice roller's active character for macros
+        if (diceRoller && player.characterId) {
+          diceRoller.setActiveCharacter(player.characterId);
+        }
       }
     },
     (allPlayers) => { players = allPlayers; },
@@ -348,6 +354,21 @@ function initGameUI() {
       socket.sendChatMessage(content, recipientId, roll);
     }
   );
+
+  // Dice Roller Panel
+  diceRoller = new DiceRoller(
+    document.getElementById('dice-roller-container'),
+    currentUser,
+    currentRole,
+    (content, recipientId, roll) => {
+      socket.sendChatMessage(content, recipientId, roll);
+    }
+  );
+
+  // Set initial active character for macros
+  if (activePlayer && activePlayer.characterId) {
+    diceRoller.setActiveCharacter(activePlayer.characterId);
+  }
 
   // Load chat history
   getMessages(currentGameId).then((data) => {
@@ -565,6 +586,10 @@ function cleanup() {
   if (monsterPanelEl) monsterPanelEl.innerHTML = '';
   if (turnTrackerEl) turnTrackerEl.innerHTML = '';
   if (chatEl) chatEl.innerHTML = '';
+
+  const diceRollerEl = document.getElementById('dice-roller-container');
+  if (diceRollerEl) diceRollerEl.innerHTML = '';
+  if (diceRoller) { diceRoller.destroy(); diceRoller = null; }
 
   // Clear "Your Turn" banner
   if (yourTurnBanner && yourTurnBanner.parentNode) {

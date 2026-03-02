@@ -265,6 +265,12 @@ function handleChatMessage(client, msg) {
     if (typeof sides === 'number' && typeof count === 'number'
         && Array.isArray(results) && typeof total === 'number') {
       roll = { sides, count, results, total };
+      // Pass through enhanced formula fields if present
+      if (typeof msg.roll.formula === 'string') roll.formula = msg.roll.formula;
+      if (typeof msg.roll.macroName === 'string') roll.macroName = msg.roll.macroName;
+      if (Array.isArray(msg.roll.groups)) roll.groups = msg.roll.groups;
+      if (typeof msg.roll.modifier === 'number') roll.modifier = msg.roll.modifier;
+      if (typeof msg.roll.breakdown === 'string') roll.breakdown = msg.roll.breakdown;
     }
   }
 

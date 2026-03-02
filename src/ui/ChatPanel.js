@@ -277,18 +277,109 @@ export class ChatPanel {
 
   /**
    * Create the rich dice roll body element.
+   * Handles both simple rolls { count, sides, results, total }
+   * and enhanced formula rolls { formula, groups, modifier, total, macroName }.
    */
   _createRollBody(roll, animate) {
     const body = document.createElement('div');
     body.className = 'chat-msg-body dice-roll-body';
 
-    // Notation line: 🎲 1d20
+    // Enhanced formula roll
+    if (roll.formula && roll.groups) {
+      // Macro name header
+      if (roll.macroName) {
+        const macroLabel = document.createElement('div');
+        macroLabel.className = 'dice-macro-label';
+        macroLabel.textContent = roll.macroName;
+        body.appendChild(macroLabel);
+      }
+
+      // Formula notation
+      const notation = document.createElement('div');
+      notation.className = 'dice-notation';
+      notation.textContent = `\u{1F3B2} ${roll.formula}`;
+      body.appendChild(notation);
+
+      // Render each dice group
+      let animIndex = 0;
+      for (const group of roll.groups) {
+        const resultsRow = document.createElement('div');
+        resultsRow.className = 'dice-results';
+
+        // Build a set of dropped indices for this group
+        const droppedIndices = new Set();
+        if (group.keep && group.dropped && group.dropped.length > 0) {
+          // Figure out which indices in results were dropped
+          const sorted = group.results.map((v, i) => ({ v, i }));
+          if (group.keep.type === 'highest') {
+            sorted.sort((a, b) => b.v - a.v);
+          } else {
+            sorted.sort((a, b) => a.v - b.v);
+          }
+          const keepCount = group.keep.count || (group.results.length - group.dropped.length);
+          const keepIdxSet = new Set(sorted.slice(0, keepCount).map(x => x.i));
+          for (let i = 0; i < group.results.length; i++) {
+            if (!keepIdxSet.has(i)) droppedIndices.add(i);
+          }
+        }
+
+        for (let i = 0; i < group.results.length; i++) {
+          const val = group.results[i];
+          const die = document.createElement('span');
+          die.className = 'dice-result';
+
+          if (droppedIndices.has(i)) {
+            die.classList.add('dropped');
+          }
+
+          // Crit / fumble for d20 single rolls
+          if (group.sides === 20 && group.results.length === 1 && !droppedIndices.has(i)) {
+            if (val === 20) die.classList.add('crit');
+            else if (val === 1) die.classList.add('fumble');
+          }
+          // Crit/fumble for advantage/disadvantage (highlight the kept result)
+          if (group.sides === 20 && group.keep && !droppedIndices.has(i)) {
+            if (val === 20) die.classList.add('crit');
+            else if (val === 1) die.classList.add('fumble');
+          }
+
+          if (animate) {
+            die.style.animationDelay = `${animIndex * 0.1}s`;
+          } else {
+            die.classList.add('no-anim');
+          }
+          animIndex++;
+
+          die.textContent = val;
+          resultsRow.appendChild(die);
+        }
+
+        body.appendChild(resultsRow);
+      }
+
+      // Modifier line
+      if (roll.modifier && roll.modifier !== 0) {
+        const modLine = document.createElement('div');
+        modLine.className = 'dice-modifier';
+        modLine.textContent = `${roll.modifier > 0 ? '+' : ''}${roll.modifier}`;
+        body.appendChild(modLine);
+      }
+
+      // Total line (always show for formula rolls)
+      const total = document.createElement('div');
+      total.className = 'dice-total';
+      total.textContent = `Total: ${roll.total}`;
+      body.appendChild(total);
+
+      return body;
+    }
+
+    // Fallback: simple roll format { count, sides, results, total }
     const notation = document.createElement('div');
     notation.className = 'dice-notation';
     notation.textContent = `\u{1F3B2} ${roll.count}d${roll.sides}`;
     body.appendChild(notation);
 
-    // Dice results row
     const resultsRow = document.createElement('div');
     resultsRow.className = 'dice-results';
 
@@ -297,13 +388,11 @@ export class ChatPanel {
       const die = document.createElement('span');
       die.className = 'dice-result';
 
-      // Crit / fumble highlighting for d20
       if (roll.sides === 20 && roll.count === 1) {
         if (val === 20) die.classList.add('crit');
         else if (val === 1) die.classList.add('fumble');
       }
 
-      // Stagger animation delay
       if (animate) {
         die.style.animationDelay = `${i * 0.1}s`;
       } else {
@@ -316,7 +405,6 @@ export class ChatPanel {
 
     body.appendChild(resultsRow);
 
-    // Total line (show for multi-die rolls)
     if (roll.count > 1) {
       const total = document.createElement('div');
       total.className = 'dice-total';
