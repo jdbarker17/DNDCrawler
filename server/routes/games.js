@@ -130,15 +130,21 @@ router.get('/:id', (req, res) => {
     WHERE gp.game_id = ?
   `).all(gameId);
 
-  // Strip monster HP from non-DM responses
+  // Filter and sanitize characters for non-DM users
   const isDM = membership.role === 'dm';
-  const sanitizedCharacters = characters.map(c => {
-    if (c.is_monster && !isDM) {
-      const { hp, max_hp, class_name, speed, ...safe } = c;
-      return safe;
-    }
-    return c;
-  });
+  const sanitizedCharacters = characters
+    .filter(c => {
+      // Hide monsters that are hidden from players (non-DM only)
+      if (!isDM && c.is_monster && c.hidden_from_players) return false;
+      return true;
+    })
+    .map(c => {
+      if (c.is_monster && !isDM) {
+        const { hp, max_hp, class_name, speed, hidden_from_players, ...safe } = c;
+        return safe;
+      }
+      return c;
+    });
 
   res.json({
     id: game.id,

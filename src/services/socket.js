@@ -26,6 +26,9 @@ const handlers = {
   initiative_sort: [],
   chat_message: [],
   monster_hp_update: [],
+  map_edit: [],
+  map_change: [],
+  visibility_toggle: [],
 };
 
 /**
@@ -224,6 +227,36 @@ export function sendMonsterHPUpdate(characterId, hp) {
   ws.send(JSON.stringify({ type: 'monster_hp_update', characterId, hp }));
 }
 
+/**
+ * Send a map cell edit (DM only — server validates).
+ * @param {number} x – cell grid X
+ * @param {number} y – cell grid Y
+ * @param {object} cellData – serialized cell data
+ */
+export function sendMapEdit(x, y, cellData) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'map_edit', x, y, cellData }));
+}
+
+/**
+ * Send a full map change (DM only — server validates).
+ * @param {object} mapData – full map JSON from GameMap.toJSON()
+ */
+export function sendMapChange(mapData) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'map_change', mapData }));
+}
+
+/**
+ * Send a visibility toggle for a monster/character (DM only — server validates).
+ * @param {number} characterId
+ * @param {boolean} hidden – true to hide from players, false to reveal
+ */
+export function sendVisibilityToggle(characterId, hidden) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'visibility_toggle', characterId, hidden }));
+}
+
 // --- Register event handlers ---
 
 /**
@@ -299,6 +332,30 @@ export function onMonsterHPUpdate(callback) {
 }
 
 /**
+ * Register a handler for map cell edits (DM broadcast).
+ * Callback receives: { x, y, cellData }
+ */
+export function onMapEdit(callback) {
+  handlers.map_edit.push(callback);
+}
+
+/**
+ * Register a handler for full map changes (DM broadcast).
+ * Callback receives: { mapData }
+ */
+export function onMapChange(callback) {
+  handlers.map_change.push(callback);
+}
+
+/**
+ * Register a handler for visibility toggle updates (DM only).
+ * Callback receives: { characterId, hidden }
+ */
+export function onVisibilityToggle(callback) {
+  handlers.visibility_toggle.push(callback);
+}
+
+/**
  * Clear all event handlers (called on cleanup).
  */
 export function clearHandlers() {
@@ -311,4 +368,7 @@ export function clearHandlers() {
   handlers.initiative_sort.length = 0;
   handlers.chat_message.length = 0;
   handlers.monster_hp_update.length = 0;
+  handlers.map_edit.length = 0;
+  handlers.map_change.length = 0;
+  handlers.visibility_toggle.length = 0;
 }

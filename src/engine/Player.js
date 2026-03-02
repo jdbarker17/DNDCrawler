@@ -35,6 +35,7 @@ export class Player {
     this._monsterImageObj = null; // cached HTMLImageElement for rendering
     this.creatureType = 'humanoid'; // skeleton, goblin, orc, wolf, dragon, humanoid
     this.size = 'medium';           // small, medium, large
+    this.hiddenFromPlayers = false;  // DM can hide monsters from player view
   }
 
   /** Movement range in cells (each cell = 5ft). */
@@ -82,6 +83,7 @@ export class Player {
     p.creatureType = data.creature_type || 'humanoid';
     p.size = data.size || 'medium';
     p.radius = p.collisionRadius; // override default based on size
+    p.hiddenFromPlayers = !!data.hidden_from_players;
 
     return p;
   }

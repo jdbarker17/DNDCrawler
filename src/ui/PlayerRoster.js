@@ -28,7 +28,10 @@ export class PlayerRoster {
    * @param {number} gameId – current game ID for API calls
    * @param {{ isCircleVisible: Function, toggleCharacterCircle: Function }} [rangeCallbacks] – range circle toggle callbacks
    */
-  constructor(container, onSelect, onPlayersChange, currentUser, role, gameId, rangeCallbacks) {
+  /**
+   * @param {{ onVisibilityToggle?: (characterId: number, hidden: boolean) => void }} [visibilityCallbacks]
+   */
+  constructor(container, onSelect, onPlayersChange, currentUser, role, gameId, rangeCallbacks, visibilityCallbacks) {
     this.container = container;
     this.onSelect = onSelect;
     this.onPlayersChange = onPlayersChange;
@@ -38,6 +41,7 @@ export class PlayerRoster {
     this.players = [];
     this.activePlayer = null;
     this.rangeCallbacks = rangeCallbacks || null;
+    this.visibilityCallbacks = visibilityCallbacks || null;
 
     this._buildUI();
   }
@@ -278,14 +282,19 @@ export class PlayerRoster {
       const showRangeToggle = this.role === 'dm' && this.rangeCallbacks && player.characterId;
       const circleOn = showRangeToggle ? this.rangeCallbacks.isCircleVisible(player.characterId) : false;
 
+      // DM visibility toggle for monsters
+      const showVisToggle = this.role === 'dm' && player.isMonster && this.visibilityCallbacks && player.characterId;
+      const isHidden = player.hiddenFromPlayers;
+
       const item = document.createElement('div');
-      item.className = `roster-item${isActive ? ' active' : ''}${!canCtrl ? ' locked' : ''}`;
+      item.className = `roster-item${isActive ? ' active' : ''}${!canCtrl ? ' locked' : ''}${isHidden ? ' roster-item-hidden' : ''}`;
       item.innerHTML = `
         <div class="roster-item-token" style="background:${player.color}">${player.token}</div>
         <div class="roster-item-info">
-          <div class="roster-item-name">${player.name}${isOwn ? ' <span class="roster-you">(you)</span>' : ''}</div>
+          <div class="roster-item-name">${player.name}${isOwn ? ' <span class="roster-you">(you)</span>' : ''}${isHidden ? ' <span class="roster-hidden-badge">hidden</span>' : ''}</div>
           <div class="roster-item-class">${player.isMonster ? (this.role === 'dm' ? (player.className || 'Monster') : 'Monster') : (player.className || 'Adventurer')}${(player.isMonster && this.role !== 'dm') ? '' : ` \u00B7 <span class="roster-item-speed" data-char-id="${player.characterId}">${player.dndSpeed}ft</span>`}</div>
         </div>
+        ${showVisToggle ? `<button class="roster-vis-toggle${isHidden ? '' : ' visible'}" data-char-id="${player.characterId}" title="${isHidden ? 'Reveal to players' : 'Hide from players'}">${isHidden ? '\u{1F441}\u200D\u{1F5E8}' : '\u{1F441}\uFE0F'}</button>` : ''}
         ${showRangeToggle ? `<button class="roster-range-toggle${circleOn ? ' on' : ''}" data-char-id="${player.characterId}" title="${circleOn ? 'Hide' : 'Show'} range circle">${circleOn ? '\u{1F441}\uFE0F' : '\u{1F441}\uFE0F'}</button>` : ''}
         <div class="roster-item-pos">(${Math.floor(player.x)},${Math.floor(player.y)})</div>
         ${canCtrl ? `<button class="roster-item-remove" data-id="${player.id}" title="Remove">\u00D7</button>` : ''}
@@ -308,6 +317,18 @@ export class PlayerRoster {
         rangeBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.rangeCallbacks.toggleCharacterCircle(player.characterId);
+        });
+      }
+
+      // Visibility toggle (DM only, monsters)
+      const visBtn = item.querySelector('.roster-vis-toggle');
+      if (visBtn && this.visibilityCallbacks) {
+        visBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const newHidden = !player.hiddenFromPlayers;
+          player.hiddenFromPlayers = newHidden;
+          this.visibilityCallbacks.onVisibilityToggle(player.characterId, newHidden);
+          this._renderList();
         });
       }
 

@@ -222,6 +222,65 @@ export function initWebSocket(server) {
         pendingPositionSaves.set(characterId, { x, y, angle: null });
         return;
       }
+
+      // --- Map cell edit (DM only — real-time map modifications) ---
+      if (msg.type === 'map_edit') {
+        if (client.role !== 'dm') return;
+        const { x, y, cellData } = msg;
+        if (x == null || y == null || !cellData) return;
+        broadcastToOthers(client, { type: 'map_edit', x, y, cellData });
+        return;
+      }
+
+      // --- Map change (DM only — live map switch) ---
+      if (msg.type === 'map_change') {
+        if (client.role !== 'dm') return;
+        const { mapData } = msg;
+        if (!mapData) return;
+        // Save to database
+        db.prepare('UPDATE games SET map_data = ? WHERE id = ?')
+          .run(JSON.stringify(mapData), client.gameId);
+        // Broadcast to OTHER clients only — DM already applied the map locally
+        broadcastToOthers(client, { type: 'map_change', mapData });
+        return;
+      }
+
+      // --- Monster visibility toggle (DM only) ---
+      if (msg.type === 'visibility_toggle') {
+        if (client.role !== 'dm') return;
+        const { characterId, hidden } = msg;
+        if (characterId == null || hidden == null) return;
+        // Update database
+        db.prepare('UPDATE characters SET hidden_from_players = ? WHERE id = ?')
+          .run(hidden ? 1 : 0, characterId);
+        const room = rooms.get(client.gameId);
+        if (!room) return;
+        if (hidden) {
+          // Tell players to remove this character; tell DMs about the toggle
+          for (const c of room) {
+            if (c.ws.readyState !== 1) continue;
+            if (c.role === 'dm') {
+              c.ws.send(JSON.stringify({ type: 'visibility_toggle', characterId, hidden: true }));
+            } else {
+              c.ws.send(JSON.stringify({ type: 'character_removed', characterId }));
+            }
+          }
+        } else {
+          // Reveal: fetch character data, send to players as character_added
+          const char = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId);
+          if (!char) return;
+          const { hp, max_hp, class_name, speed, hidden_from_players, ...safeChar } = char;
+          for (const c of room) {
+            if (c.ws.readyState !== 1) continue;
+            if (c.role === 'dm') {
+              c.ws.send(JSON.stringify({ type: 'visibility_toggle', characterId, hidden: false }));
+            } else {
+              c.ws.send(JSON.stringify({ type: 'character_added', character: safeChar }));
+            }
+          }
+        }
+        return;
+      }
     });
 
     ws.on('close', () => {
