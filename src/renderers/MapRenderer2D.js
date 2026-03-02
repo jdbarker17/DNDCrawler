@@ -151,7 +151,7 @@ export class MapRenderer2D {
     }
 
     // --- Walls (only on non-solid cells, where a wall faces into open space) ---
-    ctx.strokeStyle = this.wallColor;
+    ctx.strokeStyle = this.gameMap.wallColor || this.wallColor;
     ctx.lineWidth = this.wallThickness * z;
     ctx.lineCap = 'round';
 

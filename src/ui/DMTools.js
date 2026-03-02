@@ -16,8 +16,9 @@ export class DMTools {
    * @param {() => void} [onEditMap] – callback to open map editor
    * @param {(x: number, y: number, cellData: object) => void} [onCellEdit] – callback when a cell is edited (real-time broadcast)
    * @param {(mapData: object) => void} [onMapSwitch] – callback when DM switches to a different map
+   * @param {(settings: object) => void} [onMapSettings] – callback when a map-level setting changes (e.g. wallColor)
    */
-  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null, onCellEdit = null, onMapSwitch = null) {
+  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null, onCellEdit = null, onMapSwitch = null, onMapSettings = null) {
     this.gameMap = gameMap;
     this.renderer2d = renderer2d;
     this.enabled = false;
@@ -27,6 +28,7 @@ export class DMTools {
     this.onEditMap = onEditMap;
     this.onCellEdit = onCellEdit;
     this.onMapSwitch = onMapSwitch;
+    this.onMapSettings = onMapSettings;
     this.actionModeEnabled = false;
 
     // Only build UI for DM
@@ -68,6 +70,21 @@ export class DMTools {
         <button class="dm-btn" data-tool="objvis">Obj Vis</button>
       </div>
       <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
+      <div class="dm-wall-theme" id="dm-wall-theme">
+        <div class="dm-wall-theme-label">Wall Color</div>
+        <div class="dm-wall-theme-presets">
+          <button class="dm-wall-preset" data-color="" title="Default"
+                  style="background:#d4c9a8;border:2px solid #888"></button>
+          <button class="dm-wall-preset" data-color="#7a5c3a" title="Wood"
+                  style="background:#7a5c3a"></button>
+          <button class="dm-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                  style="background:#3a3a3a"></button>
+          <button class="dm-wall-preset" data-color="#c4a86b" title="Sandstone"
+                  style="background:#c4a86b"></button>
+        </div>
+        <input type="color" id="dm-wall-color-picker" class="dm-wall-color-picker"
+               value="#6b6b6b" title="Custom wall color">
+      </div>
       <div class="dm-divider"></div>
       <label class="dm-toggle dm-action-toggle">
         <input type="checkbox" id="dm-action-mode-toggle">
@@ -84,6 +101,22 @@ export class DMTools {
       this.enabled = e.target.checked;
       this.toolbar.querySelector('#dm-tools-group').style.display = this.enabled ? 'flex' : 'none';
       this.toolbar.querySelector('#dm-hint').style.display = this.enabled ? 'block' : 'none';
+      this.toolbar.querySelector('#dm-wall-theme').style.display = this.enabled ? 'block' : 'none';
+    });
+
+    // Wall color presets
+    this.toolbar.querySelectorAll('.dm-wall-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.color;
+        this._setWallColor(color);
+        // Update color picker to reflect current selection
+        this.toolbar.querySelector('#dm-wall-color-picker').value = color || '#d4c9a8';
+      });
+    });
+
+    // Wall color custom picker
+    this.toolbar.querySelector('#dm-wall-color-picker').addEventListener('input', (e) => {
+      this._setWallColor(e.target.value);
     });
 
     // Tool selection
@@ -179,6 +212,20 @@ export class DMTools {
     // Default: hidden
     this.toolbar.querySelector('#dm-tools-group').style.display = 'none';
     this.toolbar.querySelector('#dm-hint').style.display = 'none';
+    this.toolbar.querySelector('#dm-wall-theme').style.display = 'none';
+
+    // Sync wall color picker to current map setting
+    if (this.gameMap.wallColor) {
+      this.toolbar.querySelector('#dm-wall-color-picker').value = this.gameMap.wallColor;
+    }
+  }
+
+  /** Set the map-level wall color and broadcast the change. */
+  _setWallColor(color) {
+    this.gameMap.wallColor = color;
+    if (this.onMapSettings) {
+      this.onMapSettings({ wallColor: color });
+    }
   }
 
   _updateHint() {

@@ -28,6 +28,7 @@ const handlers = {
   monster_hp_update: [],
   map_edit: [],
   map_change: [],
+  map_settings: [],
   visibility_toggle: [],
 };
 
@@ -239,6 +240,15 @@ export function sendMapEdit(x, y, cellData) {
 }
 
 /**
+ * Send a lightweight map-level settings update (DM only — server validates).
+ * @param {object} settings – key/value pairs to update (e.g. { wallColor: '#7a5c3a' })
+ */
+export function sendMapSettings(settings) {
+  if (!connected || !ws) return;
+  ws.send(JSON.stringify({ type: 'map_settings', settings }));
+}
+
+/**
  * Send a full map change (DM only — server validates).
  * @param {object} mapData – full map JSON from GameMap.toJSON()
  */
@@ -348,6 +358,14 @@ export function onMapChange(callback) {
 }
 
 /**
+ * Register a handler for map-level settings updates (DM broadcast).
+ * Callback receives: { settings: { wallColor?, ... } }
+ */
+export function onMapSettings(callback) {
+  handlers.map_settings.push(callback);
+}
+
+/**
  * Register a handler for visibility toggle updates (DM only).
  * Callback receives: { characterId, hidden }
  */
@@ -370,5 +388,6 @@ export function clearHandlers() {
   handlers.monster_hp_update.length = 0;
   handlers.map_edit.length = 0;
   handlers.map_change.length = 0;
+  handlers.map_settings.length = 0;
   handlers.visibility_toggle.length = 0;
 }

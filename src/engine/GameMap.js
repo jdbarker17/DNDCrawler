@@ -65,6 +65,9 @@ export class GameMap {
     this.bgScale = 1.0;          // scale factor relative to grid
     this.bgOpacity = 0.5;        // overlay opacity 0..1
 
+    // Map-level wall color (DM can override for theme: brown for indoors, black for caves, etc.)
+    this.wallColor = '';         // empty = use per-cell defaults
+
     for (let y = 0; y < height; y++) {
       const row = [];
       for (let x = 0; x < width; x++) {
@@ -127,6 +130,7 @@ export class GameMap {
       bgOffsetY: this.bgOffsetY,
       bgScale: this.bgScale,
       bgOpacity: this.bgOpacity,
+      wallColor: this.wallColor,
       cells: this.cells.map(row =>
         row.map(c => ({
           walls: c.walls,
@@ -149,6 +153,7 @@ export class GameMap {
     map.bgOffsetY = data.bgOffsetY ?? 0;
     map.bgScale = data.bgScale ?? 1.0;
     map.bgOpacity = data.bgOpacity ?? 0.5;
+    map.wallColor = data.wallColor || '';
     for (let y = 0; y < data.height; y++) {
       for (let x = 0; x < data.width; x++) {
         const src = data.cells[y][x];

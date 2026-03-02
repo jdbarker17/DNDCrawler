@@ -36,9 +36,9 @@ export class RaycastRenderer {
     this.renderHeight = 320;
 
     // Visual settings
-    this.fogColor = { r: 10, g: 10, b: 15 };
-    this.fogDensity = 0.12;
-    this.ambientLight = 0.15;
+    this.fogColor = { r: 20, g: 18, b: 24 };
+    this.fogDensity = 0.08;
+    this.ambientLight = 0.25;
 
     // Floor texture (loaded from gameMap.backgroundImage for textured floor rendering)
     this._floorTexture = null;      // Uint8ClampedArray pixel data [r,g,b,a, ...]
@@ -160,7 +160,7 @@ export class RaycastRenderer {
 
       // Wall colour from the cell, shaded by distance and cell light
       const cellLight = result.cell ? result.cell.light : 1;
-      const wallColorBase = result.cell ? result.cell.wallColor : '#6b6b6b';
+      const wallColorBase = this.gameMap.wallColor || (result.cell ? result.cell.wallColor : '#6b6b6b');
 
       // Side shading: walls hit on Y-axis are slightly darker
       const sideFactor = result.side === 1 ? 0.7 : 1.0;

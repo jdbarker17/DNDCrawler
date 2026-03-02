@@ -232,6 +232,15 @@ export function initWebSocket(server) {
         return;
       }
 
+      // --- Map settings update (DM only — lightweight setting sync) ---
+      if (msg.type === 'map_settings') {
+        if (client.role !== 'dm') return;
+        const { settings } = msg;
+        if (!settings || typeof settings !== 'object') return;
+        broadcastToOthers(client, { type: 'map_settings', settings });
+        return;
+      }
+
       // --- Map change (DM only — live map switch) ---
       if (msg.type === 'map_change') {
         if (client.role !== 'dm') return;

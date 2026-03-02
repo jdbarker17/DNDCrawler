@@ -286,6 +286,10 @@ function initGameUI() {
     (mapData) => {
       applyNewMap(mapData);
       socket.sendMapChange(mapData);
+    },
+    // onMapSettings — DM changed a map-level setting (e.g. wall color)
+    (settings) => {
+      socket.sendMapSettings(settings);
     }
   );
 
@@ -591,6 +595,14 @@ function initGameUI() {
   socket.onMapChange((msg) => {
     if (!msg.mapData) return;
     applyNewMap(msg.mapData);
+  });
+
+  // --- Map settings update from server (e.g. wall color change) ---
+  socket.onMapSettings((msg) => {
+    if (!gameMap || !msg.settings) return;
+    if (msg.settings.wallColor !== undefined) {
+      gameMap.wallColor = msg.settings.wallColor;
+    }
   });
 
   // --- Visibility toggle from server (DM sees toggle state changes) ---
