@@ -165,6 +165,32 @@ export async function updateMonsterHP(charId, hp, maxHp) {
   });
 }
 
+// --- Dice Macros ---
+
+export async function getMacros(characterId) {
+  return apiFetch(`/api/characters/${characterId}/macros`);
+}
+
+export async function createMacro(characterId, macroData) {
+  return apiFetch(`/api/characters/${characterId}/macros`, {
+    method: 'POST',
+    body: JSON.stringify(macroData),
+  });
+}
+
+export async function updateMacro(macroId, data) {
+  return apiFetch(`/api/macros/${macroId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteMacro(macroId) {
+  return apiFetch(`/api/macros/${macroId}`, {
+    method: 'DELETE',
+  });
+}
+
 // --- Messages ---
 
 export async function getMessages(gameId) {

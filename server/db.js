@@ -107,6 +107,22 @@ try {
   db.exec(`ALTER TABLE characters ADD COLUMN monster_image TEXT DEFAULT NULL`);
 } catch (e) { /* Column already exists */ }
 
+// Dice macros table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS dice_macros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    game_id INTEGER NOT NULL REFERENCES games(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    formula TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT DEFAULT 'custom',
+    sort_order INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
 // Creature type and size columns
 try {
   db.exec(`ALTER TABLE characters ADD COLUMN creature_type TEXT DEFAULT 'humanoid'`);
