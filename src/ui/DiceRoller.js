@@ -53,6 +53,7 @@ export class DiceRoller {
     this.collapsed = false;
     this.activeTab = 'quick'; // 'quick' | 'macros'
     this.activeCharacterId = null;
+    this.activeCharacter = null; // { name, color, isMonster }
     this.macros = [];
     this.rollHistory = []; // last 20 rolls
     this.editingMacroId = null; // null = creating new, number = editing existing
@@ -571,15 +572,79 @@ export class DiceRoller {
   // --- Macros ---
 
   /**
-   * Set the active character and reload their macros + checks.
-   * @param {number} characterId
+   * Set the active character, update theme/indicator, and reload macros + checks.
+   * @param {Player|null} player - Player object with characterId, name, color, isMonster
    */
-  async setActiveCharacter(characterId) {
-    if (!characterId || characterId === this.activeCharacterId) return;
+  async setActiveCharacter(player) {
+    if (!player) {
+      this.activeCharacter = null;
+      this.activeCharacterId = null;
+      this._renderCharacterIndicator();
+      this._applyTheme(null);
+      this.macros = [];
+      this._renderMacros();
+      return;
+    }
+
+    const characterId = player.characterId;
+    if (characterId === this.activeCharacterId) return;
+
     this.activeCharacterId = characterId;
+    this.activeCharacter = {
+      name: player.name,
+      color: player.color,
+      isMonster: player.isMonster,
+    };
+
+    this._renderCharacterIndicator();
+    this._applyTheme(player.isMonster ? player.color : null);
     this.quickChecks = this._loadChecks();
     this._renderChecks();
     await this._loadMacros();
+  }
+
+  _renderCharacterIndicator() {
+    let indicator = this.el.querySelector('.dice-char-indicator');
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.className = 'dice-char-indicator';
+      const roller = this.el.querySelector('#dice-roller');
+      const titleBar = roller.querySelector('.dice-roller-title-bar');
+      titleBar.after(indicator);
+    }
+
+    if (!this.activeCharacter) {
+      indicator.innerHTML = '<span class="dice-char-indicator-name dim">No character selected</span>';
+      indicator.style.borderLeftColor = '';
+      return;
+    }
+
+    const badge = this.activeCharacter.isMonster
+      ? '<span class="dice-char-indicator-badge">M</span>'
+      : '';
+
+    indicator.innerHTML = `
+      ${badge}
+      <span class="dice-char-indicator-name">${this._esc(this.activeCharacter.name)}</span>
+    `;
+
+    indicator.style.borderLeftColor = this.activeCharacter.color || '';
+  }
+
+  _applyTheme(color) {
+    const accent = color || '#c9a84c';
+    this.el.style.setProperty('--dice-accent', accent);
+
+    const roller = this.el.querySelector('#dice-roller');
+    const sidebar = this.el.querySelector('#dice-checks-sidebar');
+
+    if (color) {
+      roller.style.borderColor = accent;
+      if (sidebar) sidebar.style.borderColor = accent;
+    } else {
+      roller.style.borderColor = '';
+      if (sidebar) sidebar.style.borderColor = '';
+    }
   }
 
   async _loadMacros() {
@@ -606,6 +671,11 @@ export class DiceRoller {
     if (this.macros.length === 0) {
       listEl.innerHTML = '';
       emptyEl.style.display = '';
+      if (this.activeCharacter && this.activeCharacter.isMonster) {
+        emptyEl.innerHTML = `<p>No macros for <strong>${this._esc(this.activeCharacter.name)}</strong>. Create attack and ability macros to speed up combat!</p>`;
+      } else {
+        emptyEl.innerHTML = '<p>No macros yet. Create one to save your frequent rolls!</p>';
+      }
       return;
     }
 

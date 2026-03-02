@@ -52,9 +52,13 @@ export class MapRenderer2D {
 
   /** Load background image from the gameMap data URL (if present). */
   _loadBgImage() {
+    // Always clear stale image first so old backgrounds don't persist on map switch
+    this.bgImage = null;
+
     if (this.gameMap.backgroundImage) {
       const img = new Image();
       img.onload = () => { this.bgImage = img; };
+      img.onerror = () => { this.bgImage = null; };
       img.src = this.gameMap.backgroundImage;
     }
   }
@@ -108,6 +112,9 @@ export class MapRenderer2D {
     }
 
     // --- Floor tiles and solid blocks ---
+    // When a background image is present, draw floors at 70% opacity so the
+    // reference image shows through (matches MapCreator rendering).
+    const hasBg = !!gameMap.backgroundImage;
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
@@ -121,7 +128,8 @@ export class MapRenderer2D {
         } else {
           // Passable floor
           ctx.fillStyle = cell.floorColor;
-          ctx.globalAlpha = Math.max(0.15, cell.light);
+          const floorAlpha = Math.max(0.15, cell.light);
+          ctx.globalAlpha = hasBg ? floorAlpha * 0.7 : floorAlpha;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
         }
@@ -169,6 +177,27 @@ export class MapRenderer2D {
       }
     }
 
+    // --- Fog of War overlay (after floor + walls, before objects & tokens) ---
+    const isDM = this.role === 'dm';
+    for (let y = 0; y < gameMap.height; y++) {
+      for (let x = 0; x < gameMap.width; x++) {
+        const cell = gameMap.cells[y][x];
+        if (cell.solid) continue;
+        if (!cell.visible) {
+          const px = x * ts;
+          const py = y * ts;
+          if (isDM) {
+            // DM sees semi-transparent overlay so they can still see the map
+            ctx.fillStyle = 'rgba(0, 0, 40, 0.5)';
+          } else {
+            // Players see solid black fog
+            ctx.fillStyle = '#000';
+          }
+          ctx.fillRect(px, py, ts, ts);
+        }
+      }
+    }
+
     // --- Objects ---
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -176,24 +205,47 @@ export class MapRenderer2D {
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
+        // Skip objects in fogged cells for players
+        if (!isDM && !cell.visible) continue;
         for (const obj of cell.objects) {
+          // Skip hidden objects for players; DM sees them dimmed
+          if (obj.hidden) {
+            if (!isDM) continue;
+            ctx.globalAlpha = 0.3;
+          }
           const ox = (x + obj.x) * ts;
           const oy = (y + obj.y) * ts;
           ctx.fillText(obj.sprite, ox, oy);
+          if (obj.hidden) ctx.globalAlpha = 1;
         }
       }
     }
 
     // --- Player tokens ---
     for (const player of players) {
+      // Skip hidden monsters for players (DM sees them dimmed)
+      if (player.hiddenFromPlayers) {
+        if (!isDM) continue; // players never see hidden monsters
+      }
+
+      // Skip tokens in fogged cells for players
+      if (!isDM) {
+        const cellX = Math.floor(player.x);
+        const cellY = Math.floor(player.y);
+        const playerCell = gameMap.getCell(cellX, cellY);
+        if (playerCell && !playerCell.visible) continue;
+      }
+
       const px = player.x * ts;
       const py = player.y * ts;
       const r = ts * (player.tokenRadius ?? 0.3);
       const isActiveTurn = actionMode && turnActiveCharId != null && player.characterId === turnActiveCharId;
       const isDimmed = actionMode && turnActiveCharId != null && !isActiveTurn;
+      const isHiddenMonster = player.hiddenFromPlayers && isDM;
 
-      // Dim non-active players in action mode
-      if (isDimmed) ctx.globalAlpha = 0.4;
+      // Dim non-active players in action mode, or hidden monsters for DM
+      if (isHiddenMonster) ctx.globalAlpha = 0.35;
+      else if (isDimmed) ctx.globalAlpha = 0.4;
 
       // Pulsing gold glow ring for active-turn player
       if (isActiveTurn) {
@@ -286,7 +338,7 @@ export class MapRenderer2D {
       }
 
       // Reset alpha
-      if (isDimmed) ctx.globalAlpha = 1;
+      if (isDimmed || isHiddenMonster) ctx.globalAlpha = 1;
     }
 
     // --- Movement range circles (one per visible character) ---

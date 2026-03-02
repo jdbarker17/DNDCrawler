@@ -132,4 +132,9 @@ try {
   db.exec(`ALTER TABLE characters ADD COLUMN size TEXT DEFAULT 'medium'`);
 } catch (e) { /* Column already exists */ }
 
+// Monster visibility (DM can hide from players)
+try {
+  db.exec(`ALTER TABLE characters ADD COLUMN hidden_from_players INTEGER DEFAULT 0`);
+} catch (e) { /* Column already exists */ }
+
 export default db;

@@ -22,7 +22,7 @@ import { MapCreator } from './ui/MapCreator.js';
 import { MapLibrary } from './ui/MapLibrary.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
-  getMessages, createMonster,
+  getMessages, createMonster, getSavedMaps, getSavedMap,
 } from './services/api.js';
 import * as socket from './services/socket.js';
 
@@ -228,6 +228,7 @@ let chatPanel = null;
 let diceRoller = null;
 let animFrameId = null;
 let saveTimer = 0;
+let mapSaveTimer = 0;
 
 // --- Turn / Action Mode state ---
 let actionModeEnabled = false;
@@ -275,8 +276,22 @@ function initGameUI() {
     renderer2d,
     currentRole,
     (enabled) => onActionModeToggle(enabled),
-    () => showMapCreator(currentGameId, gameMap.toJSON())
+    () => showMapCreator(currentGameId, gameMap.toJSON()),
+    // onCellEdit — broadcast cell changes to other players in real-time
+    (x, y, cellData) => {
+      socket.sendMapEdit(x, y, cellData);
+    },
+    // onMapSwitch — DM selected a different map from the dropdown
+    (mapData) => {
+      applyNewMap(mapData);
+      socket.sendMapChange(mapData);
+    }
   );
+
+  // Load saved maps into the DM map selector dropdown
+  if (currentRole === 'dm' && dmTools) {
+    dmTools.loadMapList(getSavedMaps, getSavedMap);
+  }
 
   // Monster Panel – DM-only collapsible panel at bottom-left
   monsterPanel = new MonsterPanel(
@@ -292,9 +307,9 @@ function initGameUI() {
       // Only allow selecting characters the user can control
       if (canControl(player)) {
         activePlayer = player;
-        // Update dice roller's active character for macros
+        // Update dice roller's active character for macros + theme
         if (diceRoller && player.characterId) {
-          diceRoller.setActiveCharacter(player.characterId);
+          diceRoller.setActiveCharacter(player);
         }
       }
     },
@@ -305,6 +320,11 @@ function initGameUI() {
     {
       isCircleVisible: (charId) => isCircleVisible(charId),
       toggleCharacterCircle: (charId) => toggleCharacterCircle(charId),
+    },
+    {
+      onVisibilityToggle: (characterId, hidden) => {
+        socket.sendVisibilityToggle(characterId, hidden);
+      },
     }
   );
 
@@ -365,9 +385,9 @@ function initGameUI() {
     }
   );
 
-  // Set initial active character for macros
+  // Set initial active character for macros + theme
   if (activePlayer && activePlayer.characterId) {
-    diceRoller.setActiveCharacter(activePlayer.characterId);
+    diceRoller.setActiveCharacter(activePlayer);
   }
 
   // Load chat history
@@ -445,6 +465,7 @@ function initGameUI() {
   lastTime = 0;
   rosterRefreshTimer = 0;
   saveTimer = 0;
+  mapSaveTimer = 0;
   animFrameId = requestAnimationFrame(gameLoop);
 
   updateCanvasVisibility();
@@ -543,6 +564,41 @@ function initGameUI() {
       player.hp = msg.hp;
       // Re-render turn tracker if visible
       if (turnTracker) turnTracker._render();
+    }
+  });
+
+  // --- Map cell edit from server (real-time DM edits) ---
+  socket.onMapEdit((msg) => {
+    if (!gameMap || msg.x == null || msg.y == null || !msg.cellData) return;
+    const cell = gameMap.getCell(msg.x, msg.y);
+    if (cell) {
+      // Apply all cell properties from the broadcast
+      Object.assign(cell, {
+        walls: msg.cellData.walls ?? cell.walls,
+        floorColor: msg.cellData.floorColor ?? cell.floorColor,
+        ceilingColor: msg.cellData.ceilingColor ?? cell.ceilingColor,
+        wallColor: msg.cellData.wallColor ?? cell.wallColor,
+        light: msg.cellData.light ?? cell.light,
+        visible: msg.cellData.visible ?? cell.visible,
+        solid: msg.cellData.solid ?? cell.solid,
+        objects: msg.cellData.objects ?? cell.objects,
+      });
+    }
+  });
+
+  // --- Map change from server (live map switch) ---
+  socket.onMapChange((msg) => {
+    if (!msg.mapData) return;
+    applyNewMap(msg.mapData);
+  });
+
+  // --- Visibility toggle from server (DM sees toggle state changes) ---
+  socket.onVisibilityToggle((msg) => {
+    const player = players.find(p => p.characterId === msg.characterId);
+    if (player) {
+      player.hiddenFromPlayers = msg.hidden;
+      // Re-render roster to show updated visibility state
+      if (roster) roster._renderList();
     }
   });
 }
@@ -670,6 +726,42 @@ async function addMonster(monsterData) {
   } catch (err) {
     console.error('Failed to add monster:', err);
     alert('Failed to add monster.');
+  }
+}
+
+/**
+ * Apply a new map to the game (used for live map switching).
+ * Replaces the gameMap, updates all renderer references, and resets positions.
+ * @param {object} mapData – map JSON from GameMap.toJSON()
+ */
+function applyNewMap(mapData) {
+  gameMap = GameMap.fromJSON(mapData);
+
+  // Update all renderer references
+  if (renderer2d) {
+    renderer2d.gameMap = gameMap;
+    renderer2d._loadBgImage();
+  }
+  if (rendererFP) rendererFP.gameMap = gameMap;
+  if (minimapRenderer) minimapRenderer.gameMap = gameMap;
+  if (dmTools) dmTools.gameMap = gameMap;
+
+  // Reset all player positions to entrance area
+  for (const p of players) {
+    p.x = 1.5;
+    p.y = 1.5;
+  }
+
+  // Re-centre camera
+  if (activePlayer && renderer2d) {
+    renderer2d.centreOn(activePlayer.x, activePlayer.y);
+  } else if (renderer2d) {
+    renderer2d.centreOn(gameMap.width / 2, gameMap.height / 2);
+  }
+
+  // Save map to server
+  if (currentRole === 'dm') {
+    saveMapData(currentGameId, mapData).catch(() => {});
   }
 }
 
@@ -1409,6 +1501,17 @@ function gameLoop(timestamp) {
   if (saveTimer > 3) {
     saveTimer = 0;
     autoSavePositions();
+  }
+
+  // Auto-save map data every 30 seconds (DM only)
+  if (currentRole === 'dm') {
+    mapSaveTimer += dt;
+    if (mapSaveTimer > 30) {
+      mapSaveTimer = 0;
+      if (gameMap) {
+        saveMapData(currentGameId, gameMap.toJSON()).catch(() => {});
+      }
+    }
   }
 
   animFrameId = requestAnimationFrame(gameLoop);
