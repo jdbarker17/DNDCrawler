@@ -268,6 +268,7 @@ function initGameUI() {
   renderer2d.role = currentRole;
   rendererFP = new RaycastRenderer(canvasFP, gameMap);
   rendererFP.role = currentRole;
+  rendererFP._loadFloorTexture();
 
   // DM Tools – pass role so it can hide for non-DMs
   dmTools = new DMTools(
@@ -742,7 +743,10 @@ function applyNewMap(mapData) {
     renderer2d.gameMap = gameMap;
     renderer2d._loadBgImage();
   }
-  if (rendererFP) rendererFP.gameMap = gameMap;
+  if (rendererFP) {
+    rendererFP.gameMap = gameMap;
+    rendererFP._loadFloorTexture();
+  }
   if (minimapRenderer) minimapRenderer.gameMap = gameMap;
   if (dmTools) dmTools.gameMap = gameMap;
 
