@@ -118,6 +118,22 @@ export class MapCreator {
             <label>Scale <input type="range" id="mc-bg-scale" min="10" max="300" value="${Math.round(this.gameMap.bgScale * 100)}"></label>
             <div class="mc-hint">Shift+drag to reposition image</div>
           </div>
+          <!-- Wall Color -->
+          <div class="mc-panel">
+            <div class="mc-panel-title">Wall Color</div>
+            <div class="mc-wall-presets">
+              <button class="mc-wall-preset" data-color="" title="Default"
+                      style="background:#d4c9a8;border:2px solid #888"></button>
+              <button class="mc-wall-preset" data-color="#7a5c3a" title="Wood"
+                      style="background:#7a5c3a"></button>
+              <button class="mc-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                      style="background:#3a3a3a"></button>
+              <button class="mc-wall-preset" data-color="#c4a86b" title="Sandstone"
+                      style="background:#c4a86b"></button>
+              <input type="color" id="mc-wall-color" class="mc-wall-color-picker"
+                     value="${this.gameMap.wallColor || '#d4c9a8'}" title="Custom wall color">
+            </div>
+          </div>
           <!-- Tools -->
           <div class="mc-panel">
             <div class="mc-panel-title">Tools</div>
@@ -217,6 +233,22 @@ export class MapCreator {
       this._render();
     });
 
+    // Wall color presets
+    this.panel.querySelectorAll('.mc-wall-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.color;
+        this.gameMap.wallColor = color;
+        this.panel.querySelector('#mc-wall-color').value = color || '#d4c9a8';
+        this._render();
+      });
+    });
+
+    // Wall color custom picker
+    this.panel.querySelector('#mc-wall-color').addEventListener('input', (e) => {
+      this.gameMap.wallColor = e.target.value;
+      this._render();
+    });
+
     // Tool selection
     this.panel.querySelectorAll('.mc-tool-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -250,6 +282,7 @@ export class MapCreator {
       this.panel.querySelector('#mc-height').value = h;
       this.panel.querySelector('#mc-bg-opacity').value = 50;
       this.panel.querySelector('#mc-bg-scale').value = 100;
+      this.panel.querySelector('#mc-wall-color').value = '#d4c9a8';
       this.panel.querySelector('#mc-clear-img').style.display = 'none';
       this.camera = { x: 0, y: 0, zoom: 1 };
       this._render();
@@ -792,6 +825,7 @@ export class MapCreator {
         this.panel.querySelector('#mc-height').value = this.gameMap.height;
         this.panel.querySelector('#mc-bg-opacity').value = Math.round(this.gameMap.bgOpacity * 100);
         this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
+        this.panel.querySelector('#mc-wall-color').value = this.gameMap.wallColor || '#d4c9a8';
         this._render();
       },
       () => {
@@ -886,7 +920,7 @@ export class MapCreator {
     }
 
     // --- Walls ---
-    ctx.strokeStyle = '#d4c9a8';
+    ctx.strokeStyle = gameMap.wallColor || '#d4c9a8';
     ctx.lineWidth = 3 * z;
     ctx.lineCap = 'round';
 
