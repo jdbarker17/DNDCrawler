@@ -18,6 +18,7 @@ export class Cell {
     floorColor = '#3a3a2a',
     ceilingColor = '#1a1a1a',
     wallColor = '#6b6b6b',
+    wallEdgeColors = null,
     objects = [],
     light = 1.0,
     visible = true,
@@ -27,6 +28,7 @@ export class Cell {
     this.floorColor = floorColor;
     this.ceilingColor = ceilingColor;
     this.wallColor = wallColor;
+    this.wallEdgeColors = wallEdgeColors || {};  // { N?: string, S?: string, E?: string, W?: string }
     this.objects = objects;        // array of { type, sprite, x, y }
     this.light = light;           // 0..1 ambient light multiplier
     this.visible = visible;       // DM can hide cells entirely
@@ -64,6 +66,11 @@ export class GameMap {
     this.bgOffsetY = 0;
     this.bgScale = 1.0;          // scale factor relative to grid
     this.bgOpacity = 0.5;        // overlay opacity 0..1
+    this.floorOpacity = 0.7;     // floor tile opacity multiplier 0..1
+    this.gridOpacity = 0.12;     // grid line opacity 0..1
+
+    // Map-level wall color (DM can override for theme: brown for indoors, black for caves, etc.)
+    this.wallColor = '';         // empty = use per-cell defaults
 
     for (let y = 0; y < height; y++) {
       const row = [];
@@ -127,17 +134,27 @@ export class GameMap {
       bgOffsetY: this.bgOffsetY,
       bgScale: this.bgScale,
       bgOpacity: this.bgOpacity,
+      floorOpacity: this.floorOpacity,
+      gridOpacity: this.gridOpacity,
+      wallColor: this.wallColor,
       cells: this.cells.map(row =>
-        row.map(c => ({
-          walls: c.walls,
-          floorColor: c.floorColor,
-          ceilingColor: c.ceilingColor,
-          wallColor: c.wallColor,
-          light: c.light,
-          visible: c.visible,
-          solid: c.solid,
-          objects: c.objects,
-        }))
+        row.map(c => {
+          const out = {
+            walls: c.walls,
+            floorColor: c.floorColor,
+            ceilingColor: c.ceilingColor,
+            wallColor: c.wallColor,
+            light: c.light,
+            visible: c.visible,
+            solid: c.solid,
+            objects: c.objects,
+          };
+          // Only include per-edge colors if any have been set
+          if (c.wallEdgeColors && Object.keys(c.wallEdgeColors).length > 0) {
+            out.wallEdgeColors = c.wallEdgeColors;
+          }
+          return out;
+        })
       ),
     };
   }
@@ -149,6 +166,9 @@ export class GameMap {
     map.bgOffsetY = data.bgOffsetY ?? 0;
     map.bgScale = data.bgScale ?? 1.0;
     map.bgOpacity = data.bgOpacity ?? 0.5;
+    map.floorOpacity = data.floorOpacity ?? 0.7;
+    map.gridOpacity = data.gridOpacity ?? 0.12;
+    map.wallColor = data.wallColor || '';
     for (let y = 0; y < data.height; y++) {
       for (let x = 0; x < data.width; x++) {
         const src = data.cells[y][x];

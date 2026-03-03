@@ -16,8 +16,9 @@ export class DMTools {
    * @param {() => void} [onEditMap] – callback to open map editor
    * @param {(x: number, y: number, cellData: object) => void} [onCellEdit] – callback when a cell is edited (real-time broadcast)
    * @param {(mapData: object) => void} [onMapSwitch] – callback when DM switches to a different map
+   * @param {(settings: object) => void} [onMapSettings] – callback when a map-level setting changes (e.g. wallColor)
    */
-  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null, onCellEdit = null, onMapSwitch = null) {
+  constructor(container, gameMap, renderer2d, role = 'dm', onActionModeToggle = null, onEditMap = null, onCellEdit = null, onMapSwitch = null, onMapSettings = null) {
     this.gameMap = gameMap;
     this.renderer2d = renderer2d;
     this.enabled = false;
@@ -27,7 +28,9 @@ export class DMTools {
     this.onEditMap = onEditMap;
     this.onCellEdit = onCellEdit;
     this.onMapSwitch = onMapSwitch;
+    this.onMapSettings = onMapSettings;
     this.actionModeEnabled = false;
+    this._collapsed = true;
 
     // Only build UI for DM
     if (this.role === 'dm') {
@@ -39,51 +42,94 @@ export class DMTools {
     this.toolbar = document.createElement('div');
     this.toolbar.id = 'dm-toolbar';
     this.toolbar.innerHTML = `
-      <div class="dm-title">DM Tools</div>
-      <div class="dm-map-select-row">
-        <select id="dm-map-select" class="dm-map-select">
-          <option value="">— Switch Map —</option>
-        </select>
-      </div>
-      <div id="dm-map-preview" class="dm-map-preview" style="display:none">
-        <div class="dm-map-preview-header">
-          <span id="dm-map-preview-name" class="dm-map-preview-name"></span>
-          <span id="dm-map-preview-size" class="dm-map-preview-size"></span>
+      <button class="dm-toolbar-toggle" id="dm-toolbar-toggle">
+        <span class="dm-toolbar-toggle-label">DM Tools</span>
+        <span class="dm-toolbar-toggle-arrow" id="dm-toolbar-arrow">&#x25B2;</span>
+      </button>
+      <div class="dm-toolbar-body" id="dm-toolbar-body" style="display:none">
+        <div class="dm-map-select-row">
+          <select id="dm-map-select" class="dm-map-select">
+            <option value="">— Switch Map —</option>
+          </select>
         </div>
-        <canvas id="dm-map-preview-canvas" class="dm-map-preview-canvas" width="220" height="140"></canvas>
-        <div class="dm-map-preview-actions">
-          <button class="dm-btn dm-map-preview-switch" id="dm-map-preview-switch">Switch</button>
-          <button class="dm-btn dm-map-preview-cancel" id="dm-map-preview-cancel">Cancel</button>
+        <div id="dm-map-preview" class="dm-map-preview" style="display:none">
+          <div class="dm-map-preview-header">
+            <span id="dm-map-preview-name" class="dm-map-preview-name"></span>
+            <span id="dm-map-preview-size" class="dm-map-preview-size"></span>
+          </div>
+          <canvas id="dm-map-preview-canvas" class="dm-map-preview-canvas" width="220" height="140"></canvas>
+          <div class="dm-map-preview-actions">
+            <button class="dm-btn dm-map-preview-switch" id="dm-map-preview-switch">Switch</button>
+            <button class="dm-btn dm-map-preview-cancel" id="dm-map-preview-cancel">Cancel</button>
+          </div>
         </div>
+        <label class="dm-toggle">
+          <input type="checkbox" id="dm-mode-toggle">
+          <span>Edit Mode</span>
+        </label>
+        <div class="dm-tools-group" id="dm-tools-group">
+          <button class="dm-btn active" data-tool="wall">Wall</button>
+          <button class="dm-btn" data-tool="light">Light</button>
+          <button class="dm-btn" data-tool="floor">Floor Color</button>
+          <button class="dm-btn" data-tool="fog">Fog</button>
+          <button class="dm-btn" data-tool="objvis">Obj Vis</button>
+        </div>
+        <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
+        <div class="dm-wall-theme" id="dm-wall-theme">
+          <div class="dm-wall-theme-label">Wall Color</div>
+          <div class="dm-wall-theme-presets">
+            <button class="dm-wall-preset" data-color="" title="Default"
+                    style="background:#d4c9a8;border:2px solid #888"></button>
+            <button class="dm-wall-preset" data-color="#7a5c3a" title="Wood"
+                    style="background:#7a5c3a"></button>
+            <button class="dm-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                    style="background:#3a3a3a"></button>
+            <button class="dm-wall-preset" data-color="#c4a86b" title="Sandstone"
+                    style="background:#c4a86b"></button>
+          </div>
+          <input type="color" id="dm-wall-color-picker" class="dm-wall-color-picker"
+                 value="#6b6b6b" title="Custom wall color">
+        </div>
+        <div class="dm-divider"></div>
+        <label class="dm-toggle dm-action-toggle">
+          <input type="checkbox" id="dm-action-mode-toggle">
+          <span>Action Mode</span>
+        </label>
+        <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
+        <div class="dm-divider"></div>
+        <button class="dm-btn dm-edit-map-btn" id="dm-edit-map">Edit Map</button>
       </div>
-      <label class="dm-toggle">
-        <input type="checkbox" id="dm-mode-toggle">
-        <span>Edit Mode</span>
-      </label>
-      <div class="dm-tools-group" id="dm-tools-group">
-        <button class="dm-btn active" data-tool="wall">Wall</button>
-        <button class="dm-btn" data-tool="light">Light</button>
-        <button class="dm-btn" data-tool="floor">Floor Color</button>
-        <button class="dm-btn" data-tool="fog">Fog</button>
-        <button class="dm-btn" data-tool="objvis">Obj Vis</button>
-      </div>
-      <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
-      <div class="dm-divider"></div>
-      <label class="dm-toggle dm-action-toggle">
-        <input type="checkbox" id="dm-action-mode-toggle">
-        <span>Action Mode</span>
-      </label>
-      <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
-      <div class="dm-divider"></div>
-      <button class="dm-btn dm-edit-map-btn" id="dm-edit-map">Edit Map</button>
     `;
     container.appendChild(this.toolbar);
+
+    // Toggle collapse
+    this.toolbar.querySelector('#dm-toolbar-toggle').addEventListener('click', () => {
+      this._collapsed = !this._collapsed;
+      this.toolbar.querySelector('#dm-toolbar-body').style.display = this._collapsed ? 'none' : 'block';
+      this.toolbar.querySelector('#dm-toolbar-arrow').textContent = this._collapsed ? '\u25B2' : '\u25BC';
+    });
 
     // Toggle edit mode
     this.toolbar.querySelector('#dm-mode-toggle').addEventListener('change', (e) => {
       this.enabled = e.target.checked;
       this.toolbar.querySelector('#dm-tools-group').style.display = this.enabled ? 'flex' : 'none';
       this.toolbar.querySelector('#dm-hint').style.display = this.enabled ? 'block' : 'none';
+      this.toolbar.querySelector('#dm-wall-theme').style.display = this.enabled ? 'block' : 'none';
+    });
+
+    // Wall color presets
+    this.toolbar.querySelectorAll('.dm-wall-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.color;
+        this._setWallColor(color);
+        // Update color picker to reflect current selection
+        this.toolbar.querySelector('#dm-wall-color-picker').value = color || '#d4c9a8';
+      });
+    });
+
+    // Wall color custom picker
+    this.toolbar.querySelector('#dm-wall-color-picker').addEventListener('input', (e) => {
+      this._setWallColor(e.target.value);
     });
 
     // Tool selection
@@ -179,6 +225,20 @@ export class DMTools {
     // Default: hidden
     this.toolbar.querySelector('#dm-tools-group').style.display = 'none';
     this.toolbar.querySelector('#dm-hint').style.display = 'none';
+    this.toolbar.querySelector('#dm-wall-theme').style.display = 'none';
+
+    // Sync wall color picker to current map setting
+    if (this.gameMap.wallColor) {
+      this.toolbar.querySelector('#dm-wall-color-picker').value = this.gameMap.wallColor;
+    }
+  }
+
+  /** Set the map-level wall color and broadcast the change. */
+  _setWallColor(color) {
+    this.gameMap.wallColor = color;
+    if (this.onMapSettings) {
+      this.onMapSettings({ wallColor: color });
+    }
   }
 
   _updateHint() {
@@ -413,19 +473,19 @@ export class DMTools {
     const cells = mapData.cells;
 
     // Floor tiles
+    const floorOpacity = mapData.floorOpacity ?? 0.7;
     for (let y = 0; y < mapH; y++) {
       for (let x = 0; x < mapW; x++) {
         const cell = cells[y][x];
         const px = x * ts;
         const py = y * ts;
-
         if (cell.solid) {
           ctx.fillStyle = '#111';
         } else {
           ctx.fillStyle = cell.floorColor || '#3a3a2a';
-          // Apply light level
+          // Apply light level and floor opacity
           const light = cell.light ?? 1;
-          if (light < 1) ctx.globalAlpha = 0.3 + light * 0.7;
+          ctx.globalAlpha = (0.3 + light * 0.7) * floorOpacity;
         }
         ctx.fillRect(px, py, ts, ts);
         ctx.globalAlpha = 1;
@@ -456,20 +516,22 @@ export class DMTools {
       }
     }
 
-    // Walls
-    ctx.strokeStyle = '#d4c9a8';
+    // Walls (per-edge colors)
     ctx.lineWidth = Math.max(1, ts * 0.06);
+    const mwc = mapData.wallColor || '';
     for (let y = 0; y < mapH; y++) {
       for (let x = 0; x < mapW; x++) {
         const cell = cells[y][x];
+        const ec = cell.wallEdgeColors || {};
+        const base = cell.wallColor || '#d4c9a8';
         const px = x * ts;
         const py = y * ts;
         const w = cell.walls || 0;
 
-        if (w & 0b0001) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke(); }           // N
-        if (w & 0b0010) { ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // S
-        if (w & 0b0100) { ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // E
-        if (w & 0b1000) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke(); }           // W
+        if (w & 0b0001) { ctx.strokeStyle = mwc || ec.N || base; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke(); }           // N
+        if (w & 0b0010) { ctx.strokeStyle = mwc || ec.S || base; ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // S
+        if (w & 0b0100) { ctx.strokeStyle = mwc || ec.E || base; ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke(); } // E
+        if (w & 0b1000) { ctx.strokeStyle = mwc || ec.W || base; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke(); }           // W
       }
     }
   }

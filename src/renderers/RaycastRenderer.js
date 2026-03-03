@@ -36,9 +36,48 @@ export class RaycastRenderer {
     this.renderHeight = 320;
 
     // Visual settings
-    this.fogColor = { r: 10, g: 10, b: 15 };
-    this.fogDensity = 0.12;
-    this.ambientLight = 0.15;
+    this.fogColor = { r: 20, g: 18, b: 24 };
+    this.fogDensity = 0.08;
+    this.ambientLight = 0.25;
+
+    // Floor texture (loaded from gameMap.backgroundImage for textured floor rendering)
+    this._floorTexture = null;      // Uint8ClampedArray pixel data [r,g,b,a, ...]
+    this._floorTextureW = 0;        // texture pixel width
+    this._floorTextureH = 0;        // texture pixel height
+    this._floorImageData = null;    // cached ImageData buffer (avoids per-frame allocation)
+    this._floorImageDataW = 0;
+    this._floorImageDataH = 0;
+    this._floorOffscreen = null;    // offscreen canvas for DPR-safe floor blitting
+    this._floorOffscreenCtx = null;
+  }
+
+  /**
+   * Load the background image from gameMap into a raw pixel array for
+   * floor texture sampling. Uses an offscreen canvas to decode the data URL.
+   */
+  _loadFloorTexture() {
+    this._floorTexture = null;
+    this._floorTextureW = 0;
+    this._floorTextureH = 0;
+
+    if (!this.gameMap || !this.gameMap.backgroundImage) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = img.width;
+      offscreen.height = img.height;
+      const octx = offscreen.getContext('2d');
+      octx.drawImage(img, 0, 0);
+      const imgData = octx.getImageData(0, 0, img.width, img.height);
+      this._floorTexture = imgData.data; // Uint8ClampedArray [r,g,b,a, ...]
+      this._floorTextureW = img.width;
+      this._floorTextureH = img.height;
+    };
+    img.onerror = () => {
+      this._floorTexture = null;
+    };
+    img.src = this.gameMap.backgroundImage;
   }
 
   resize() {
@@ -77,19 +116,23 @@ export class RaycastRenderer {
     ctx.fillStyle = ceilGrad;
     ctx.fillRect(0, 0, w, h / 2);
 
-    // Draw floor gradient
+    // Draw floor gradient (base layer — will be overwritten by textured floor if available)
     const floorGrad = ctx.createLinearGradient(0, h / 2, 0, h);
     floorGrad.addColorStop(0, '#1a1a15');
     floorGrad.addColorStop(1, '#2a2a1a');
     ctx.fillStyle = floorGrad;
     ctx.fillRect(0, h / 2, w, h / 2);
 
-    // --- Cast rays ---
+    // --- Cast rays (populate depthBuffer and collect wall strip data) ---
     const numRays = Math.floor(w); // one ray per pixel column
     const halfFov = fov / 2;
 
-    // Depth buffer for sprite occlusion against walls
+    // Depth buffer for sprite occlusion and floor wall-clipping
     const depthBuffer = new Float64Array(numRays);
+
+    // When floor texture is available, defer wall drawing until after putImageData
+    const hasFloorTexture = !!this._floorTexture;
+    const wallStrips = hasFloorTexture ? [] : null;
 
     for (let i = 0; i < numRays; i++) {
       // Ray angle: sweep from -halfFov to +halfFov relative to player
@@ -115,9 +158,11 @@ export class RaycastRenderer {
       const lineHeight = (this.wallHeight / perpDist) * (h / (2 * Math.tan(halfFov)));
       const drawStart = (h - lineHeight) / 2;
 
-      // Wall colour from the cell, shaded by distance and cell light
+      // Wall colour from per-edge color, falling back to cell default, shaded by distance
       const cellLight = result.cell ? result.cell.light : 1;
-      const wallColorBase = result.cell ? result.cell.wallColor : '#6b6b6b';
+      const ec = result.cell?.wallEdgeColors;
+      const edgeColor = (ec && result.wallEdge) ? ec[result.wallEdge] : null;
+      const wallColorBase = this.gameMap.wallColor || edgeColor || (result.cell ? result.cell.wallColor : '#6b6b6b');
 
       // Side shading: walls hit on Y-axis are slightly darker
       const sideFactor = result.side === 1 ? 0.7 : 1.0;
@@ -127,8 +172,24 @@ export class RaycastRenderer {
       const lightFactor = Math.max(this.ambientLight, cellLight * sideFactor * (1 - fogFactor));
 
       const color = this._shadeColor(wallColorBase, lightFactor, fogFactor);
-      ctx.fillStyle = color;
-      ctx.fillRect(i, drawStart, 1, lineHeight);
+
+      if (hasFloorTexture) {
+        // Defer wall drawing until after textured floor is blitted
+        wallStrips.push({ x: i, y: drawStart, h: lineHeight, color });
+      } else {
+        // No texture: draw wall strips immediately on top of gradient
+        ctx.fillStyle = color;
+        ctx.fillRect(i, drawStart, 1, lineHeight);
+      }
+    }
+
+    // --- Textured floor: blit image-sampled floor, then draw deferred wall strips on top ---
+    if (hasFloorTexture) {
+      this._drawTexturedFloor(w, h, player.x, player.y, player.angle, depthBuffer);
+      for (const strip of wallStrips) {
+        ctx.fillStyle = strip.color;
+        ctx.fillRect(strip.x, strip.y, 1, strip.h);
+      }
     }
 
     // --- Draw sprite objects and other players in view ---
@@ -200,18 +261,22 @@ export class RaycastRenderer {
         if (stepX > 0) {
           // Moved east: check previous cell's east wall or current cell's west wall
           if (prevCell?.hasWall(WALL_E) || cell?.hasWall(WALL_W)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'W' : 'E';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         } else {
           // Moved west
           if (prevCell?.hasWall(WALL_W) || cell?.hasWall(WALL_E)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'E' : 'W';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         }
 
         // Out of bounds = wall
         if (!this.gameMap.inBounds(mapX, mapY)) {
-          return { distance, side, cell: null };
+          return { distance, side, cell: null, wallEdge: null };
         }
       } else {
         distance = tMaxY;
@@ -224,16 +289,20 @@ export class RaycastRenderer {
 
         if (stepY > 0) {
           if (prevCell?.hasWall(WALL_S) || cell?.hasWall(WALL_N)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'N' : 'S';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         } else {
           if (prevCell?.hasWall(WALL_N) || cell?.hasWall(WALL_S)) {
-            return { distance, side, cell: cell || prevCell };
+            const hitCell = cell || prevCell;
+            const wallEdge = cell ? 'S' : 'N';
+            return { distance, side, cell: hitCell, wallEdge };
           }
         }
 
         if (!this.gameMap.inBounds(mapX, mapY)) {
-          return { distance, side, cell: null };
+          return { distance, side, cell: null, wallEdge: null };
         }
       }
 
@@ -588,6 +657,146 @@ export class RaycastRenderer {
     const lb = Math.floor(b * lightFactor * (1 - fogFactor) + this.fogColor.b * fogFactor);
 
     return `rgb(${Math.min(255, lr)},${Math.min(255, lg)},${Math.min(255, lb)})`;
+  }
+
+  /**
+   * Render textured floor into the lower half of the screen using scanline
+   * floor casting. For each row below the horizon, compute world-space floor
+   * coordinates via linear interpolation, sample the background image, and
+   * write to an ImageData buffer with distance fog.
+   *
+   * @param {number} w – screen width
+   * @param {number} h – screen height
+   * @param {number} playerX – viewer world X
+   * @param {number} playerY – viewer world Y
+   * @param {number} playerAngle – viewer facing angle (radians)
+   * @param {Float64Array} depthBuffer – wall perpendicular distance per column
+   */
+  _drawTexturedFloor(w, h, playerX, playerY, playerAngle, depthBuffer) {
+    const { ctx, fov, fogColor, fogDensity, ambientLight } = this;
+    const halfFov = fov / 2;
+
+    // Projection distance (pixels from eye to projection plane)
+    const projDist = h / (2 * Math.tan(halfFov));
+
+    // Camera height (world units) — eye level is at half wall height
+    const camHeight = this.wallHeight * 0.5;
+
+    // Camera direction and perpendicular plane vectors
+    const dirX = Math.cos(playerAngle);
+    const dirY = Math.sin(playerAngle);
+    const planeX = Math.cos(playerAngle + Math.PI / 2) * Math.tan(halfFov);
+    const planeY = Math.sin(playerAngle + Math.PI / 2) * Math.tan(halfFov);
+
+    // Floor region: bottom half of the screen
+    const floorStartY = Math.floor(h / 2);
+    const floorH = Math.ceil(h - floorStartY);
+    const floorW = Math.floor(w);
+
+    // Reuse or create offscreen canvas + ImageData buffer
+    // (putImageData ignores canvas transforms, so we write to an offscreen canvas
+    //  at CSS-pixel resolution, then drawImage onto the main canvas which DOES
+    //  respect the DPR transform set in resize())
+    if (!this._floorOffscreen || this._floorImageDataW !== floorW || this._floorImageDataH !== floorH) {
+      this._floorOffscreen = document.createElement('canvas');
+      this._floorOffscreen.width = floorW;
+      this._floorOffscreen.height = floorH;
+      this._floorOffscreenCtx = this._floorOffscreen.getContext('2d');
+      this._floorImageData = this._floorOffscreenCtx.createImageData(floorW, floorH);
+      this._floorImageDataW = floorW;
+      this._floorImageDataH = floorH;
+    }
+    const pixels = this._floorImageData.data;
+    pixels.fill(0); // clear to transparent black
+
+    // Texture sampling constants
+    const tileSize = 40; // must match MapRenderer2D.tileSize
+    const bgOffsetX = this.gameMap.bgOffsetX;
+    const bgOffsetY = this.gameMap.bgOffsetY;
+    const bgScale = this.gameMap.bgScale;
+    const texW = this._floorTextureW;
+    const texH = this._floorTextureH;
+    const texData = this._floorTexture;
+    const texScaleFactor = tileSize / bgScale;
+
+    const fogR = fogColor.r;
+    const fogG = fogColor.g;
+    const fogB = fogColor.b;
+
+    // Pixel skip for performance on wide screens
+    const pixelSkip = floorW > 640 ? 2 : 1;
+
+    for (let row = 0; row < floorH; row++) {
+      // Distance from camera to this floor row
+      const rowDist = (camHeight * projDist) / (row + 0.5);
+
+      // World-space step per pixel column along this scanline
+      const floorStepX = (rowDist * 2 * planeX) / floorW;
+      const floorStepY = (rowDist * 2 * planeY) / floorW;
+
+      // World position at the leftmost pixel of this row
+      let worldX = playerX + rowDist * (dirX - planeX);
+      let worldY = playerY + rowDist * (dirY - planeY);
+
+      // Distance-based fog for this row (uniform across the row)
+      const fog = Math.min(1, rowDist * fogDensity);
+      const lightFactor = Math.max(ambientLight, 1 - fog);
+      const invFog = 1 - fog;
+
+      const rowOffset = row * floorW * 4;
+
+      for (let x = 0; x < floorW; x += pixelSkip) {
+        // Wall occlusion: if wall is closer than this floor row, skip
+        if (x < depthBuffer.length && rowDist >= depthBuffer[x]) {
+          worldX += floorStepX * pixelSkip;
+          worldY += floorStepY * pixelSkip;
+          continue;
+        }
+
+        // Map world coords to texture pixel
+        const texX = ((worldX - bgOffsetX) * texScaleFactor) | 0;
+        const texY = ((worldY - bgOffsetY) * texScaleFactor) | 0;
+
+        let r, g, b;
+        if (texX >= 0 && texX < texW && texY >= 0 && texY < texH) {
+          const texIdx = (texY * texW + texX) * 4;
+          r = texData[texIdx];
+          g = texData[texIdx + 1];
+          b = texData[texIdx + 2];
+        } else {
+          // Outside texture bounds: dark fallback matching gradient tone
+          r = 42; g = 42; b = 26;
+        }
+
+        // Apply fog blending
+        const pr = (r * lightFactor * invFog + fogR * fog) | 0;
+        const pg = (g * lightFactor * invFog + fogG * fog) | 0;
+        const pb = (b * lightFactor * invFog + fogB * fog) | 0;
+
+        const pixelIdx = rowOffset + x * 4;
+        pixels[pixelIdx]     = pr > 255 ? 255 : pr;
+        pixels[pixelIdx + 1] = pg > 255 ? 255 : pg;
+        pixels[pixelIdx + 2] = pb > 255 ? 255 : pb;
+        pixels[pixelIdx + 3] = 255;
+
+        // Duplicate pixel when skipping for performance
+        if (pixelSkip > 1 && x + 1 < floorW) {
+          const nextIdx = rowOffset + (x + 1) * 4;
+          pixels[nextIdx]     = pixels[pixelIdx];
+          pixels[nextIdx + 1] = pixels[pixelIdx + 1];
+          pixels[nextIdx + 2] = pixels[pixelIdx + 2];
+          pixels[nextIdx + 3] = 255;
+        }
+
+        worldX += floorStepX * pixelSkip;
+        worldY += floorStepY * pixelSkip;
+      }
+    }
+
+    // Blit the textured floor to the canvas via offscreen canvas
+    // (drawImage respects the DPR transform; putImageData does not)
+    this._floorOffscreenCtx.putImageData(this._floorImageData, 0, 0);
+    ctx.drawImage(this._floorOffscreen, 0, floorStartY);
   }
 
   /** Subtle edge darkening for atmosphere. */

@@ -50,7 +50,7 @@ export class DiceRoller {
     this.currentUser = currentUser;
     this.role = role;
     this.onRoll = onRoll;
-    this.collapsed = false;
+    this.collapsed = true;
     this.activeTab = 'quick'; // 'quick' | 'macros'
     this.activeCharacterId = null;
     this.activeCharacter = null; // { name, color, isMonster }
@@ -91,7 +91,7 @@ export class DiceRoller {
     this.el.id = 'dice-roller-wrapper';
     this.el.innerHTML = `
       <!-- Quick Checks Sidebar -->
-      <div id="dice-checks-sidebar">
+      <div id="dice-checks-sidebar" style="display:none">
         <div class="dice-checks-header dice-toggle-header">
           <span class="dice-toggle-arrow">${this.checksVisible ? '\u25BC' : '\u25B6'}</span> Checks
         </div>
@@ -112,9 +112,9 @@ export class DiceRoller {
       <div id="dice-roller">
         <div class="dice-roller-title-bar">
           <span class="dice-roller-title">\u{1F3B2} Dice Roller</span>
-          <button class="dice-roller-collapse-btn">&minus;</button>
+          <button class="dice-roller-collapse-btn">+</button>
         </div>
-        <div class="dice-roller-body">
+        <div class="dice-roller-body" style="display:none">
           <div class="dice-roller-tabs">
             <button class="dice-roller-tab active" data-tab="quick">Quick Roll</button>
             <button class="dice-roller-tab" data-tab="macros">Macros</button>

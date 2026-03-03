@@ -112,9 +112,7 @@ export class MapRenderer2D {
     }
 
     // --- Floor tiles and solid blocks ---
-    // When a background image is present, draw floors at 70% opacity so the
-    // reference image shows through (matches MapCreator rendering).
-    const hasBg = !!gameMap.backgroundImage;
+    const floorOpacity = gameMap.floorOpacity ?? 0.7;
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
@@ -129,7 +127,7 @@ export class MapRenderer2D {
           // Passable floor
           ctx.fillStyle = cell.floorColor;
           const floorAlpha = Math.max(0.15, cell.light);
-          ctx.globalAlpha = hasBg ? floorAlpha * 0.7 : floorAlpha;
+          ctx.globalAlpha = floorAlpha * floorOpacity;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
         }
@@ -138,7 +136,8 @@ export class MapRenderer2D {
 
     // --- Grid (only over non-solid cells) ---
     if (this.showGrid) {
-      ctx.strokeStyle = this.gridColor;
+      const gridAlpha = gameMap.gridOpacity ?? 0.12;
+      ctx.strokeStyle = `rgba(255,255,255,${gridAlpha})`;
       ctx.lineWidth = 1;
       for (let y = 0; y < gameMap.height; y++) {
         for (let x = 0; x < gameMap.width; x++) {
@@ -151,27 +150,33 @@ export class MapRenderer2D {
     }
 
     // --- Walls (only on non-solid cells, where a wall faces into open space) ---
-    ctx.strokeStyle = this.wallColor;
     ctx.lineWidth = this.wallThickness * z;
     ctx.lineCap = 'round';
+
+    const mapWallColor = this.gameMap.wallColor;
 
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
         if (cell.solid) continue; // solid cells are already visually filled
+        const ec = cell.wallEdgeColors || {};
         const px = x * ts;
         const py = y * ts;
 
         if (cell.hasWall(WALL_N)) {
+          ctx.strokeStyle = mapWallColor || ec.N || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke();
         }
         if (cell.hasWall(WALL_S)) {
+          ctx.strokeStyle = mapWallColor || ec.S || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_W)) {
+          ctx.strokeStyle = mapWallColor || ec.W || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_E)) {
+          ctx.strokeStyle = mapWallColor || ec.E || cell.wallColor || this.wallColor;
           ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
       }

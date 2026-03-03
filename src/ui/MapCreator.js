@@ -46,6 +46,7 @@ export class MapCreator {
 
     this.activeTool = 'wall';
     this.selectedObject = OBJECT_PALETTE[0];
+    this.wallColorBrush = '#6b6b6b';
     this.tileSize = 40;
 
     // Camera
@@ -71,6 +72,11 @@ export class MapCreator {
     this.paintWallAdd = true; // true = adding walls, false = removing
     this.lastPaintKey = null; // "gx,gy,edge" to avoid re-toggling same wall
     this.paintAxis = null; // 'H' (N/S edges) or 'V' (E/W edges) — locks drag direction
+
+    // WASD panning state
+    this._keysDown = new Set();
+    this._panRAF = null;
+    this._panLastTime = 0;
 
     this._boundHandlers = {};
     this._buildUI();
@@ -116,6 +122,8 @@ export class MapCreator {
             <button class="mc-btn small mc-danger" id="mc-clear-img" style="display:none">Remove Image</button>
             <label>Opacity <input type="range" id="mc-bg-opacity" min="0" max="100" value="${Math.round(this.gameMap.bgOpacity * 100)}"></label>
             <label>Scale <input type="range" id="mc-bg-scale" min="10" max="300" value="${Math.round(this.gameMap.bgScale * 100)}"></label>
+            <label>Floor Opacity <input type="range" id="mc-floor-opacity" min="0" max="100" value="${Math.round(this.gameMap.floorOpacity * 100)}"></label>
+            <label>Grid Lines <input type="range" id="mc-grid-opacity" min="0" max="100" value="${Math.round(this.gameMap.gridOpacity * 100)}"></label>
             <div class="mc-hint">Shift+drag to reposition image</div>
           </div>
           <!-- Tools -->
@@ -138,6 +146,22 @@ export class MapCreator {
               ${OBJECT_PALETTE.map((o, i) =>
                 `<button class="mc-obj-btn${i === 0 ? ' active' : ''}" data-idx="${i}" title="${o.label}">${o.sprite}</button>`
               ).join('')}
+            </div>
+          </div>
+          <!-- Wall Color Palette (shown when Wall tool is active) -->
+          <div class="mc-panel" id="mc-wallcolor-palette">
+            <div class="mc-panel-title">Wall Color</div>
+            <div class="mc-wall-presets">
+              <button class="mc-wall-preset active" data-color="#6b6b6b" title="Default (Gray)"
+                      style="background:#6b6b6b"></button>
+              <button class="mc-wall-preset" data-color="#7a5c3a" title="Wood"
+                      style="background:#7a5c3a"></button>
+              <button class="mc-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                      style="background:#3a3a3a"></button>
+              <button class="mc-wall-preset" data-color="#c4a86b" title="Sandstone"
+                      style="background:#c4a86b"></button>
+              <input type="color" id="mc-wall-color" class="mc-wall-color-picker"
+                     value="#6b6b6b" title="Custom wall color">
             </div>
           </div>
           <!-- Map Library -->
@@ -216,6 +240,30 @@ export class MapCreator {
       this.gameMap.bgScale = parseInt(e.target.value, 10) / 100;
       this._render();
     });
+    this.panel.querySelector('#mc-floor-opacity').addEventListener('input', (e) => {
+      this.gameMap.floorOpacity = parseInt(e.target.value, 10) / 100;
+      this._render();
+    });
+    this.panel.querySelector('#mc-grid-opacity').addEventListener('input', (e) => {
+      this.gameMap.gridOpacity = parseInt(e.target.value, 10) / 100;
+      this._render();
+    });
+
+    // Wall color presets (per-cell painting brush)
+    this.panel.querySelectorAll('.mc-wall-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.panel.querySelectorAll('.mc-wall-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.wallColorBrush = btn.dataset.color;
+        this.panel.querySelector('#mc-wall-color').value = this.wallColorBrush;
+      });
+    });
+
+    // Wall color custom picker
+    this.panel.querySelector('#mc-wall-color').addEventListener('input', (e) => {
+      this.wallColorBrush = e.target.value;
+      this.panel.querySelectorAll('.mc-wall-preset').forEach(b => b.classList.remove('active'));
+    });
 
     // Tool selection
     this.panel.querySelectorAll('.mc-tool-btn').forEach(btn => {
@@ -226,6 +274,8 @@ export class MapCreator {
         this._updateToolHint();
         this.panel.querySelector('#mc-object-palette').style.display =
           this.activeTool === 'object' ? 'flex' : 'none';
+        this.panel.querySelector('#mc-wallcolor-palette').style.display =
+          this.activeTool === 'wall' ? 'flex' : 'none';
       });
     });
 
@@ -250,6 +300,10 @@ export class MapCreator {
       this.panel.querySelector('#mc-height').value = h;
       this.panel.querySelector('#mc-bg-opacity').value = 50;
       this.panel.querySelector('#mc-bg-scale').value = 100;
+      this.panel.querySelector('#mc-floor-opacity').value = 70;
+      this.panel.querySelector('#mc-grid-opacity').value = 12;
+      this.wallColorBrush = '#6b6b6b';
+      this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
       this.panel.querySelector('#mc-clear-img').style.display = 'none';
       this.camera = { x: 0, y: 0, zoom: 1 };
       this._render();
@@ -295,11 +349,17 @@ export class MapCreator {
     // Window resize
     this._boundHandlers.resize = () => this._resizeCanvas();
     window.addEventListener('resize', this._boundHandlers.resize);
+
+    // WASD keyboard panning
+    this._boundHandlers.keydown = (e) => this._onKeyDown(e);
+    this._boundHandlers.keyup = (e) => this._onKeyUp(e);
+    window.addEventListener('keydown', this._boundHandlers.keydown);
+    window.addEventListener('keyup', this._boundHandlers.keyup);
   }
 
   _updateToolHint() {
     const hints = {
-      wall: 'Click cell edges to toggle walls',
+      wall: 'Click edges to toggle walls (uses selected color)',
       solid: 'Click cells to toggle solid/passable',
       floor: 'Click cells to cycle floor color',
       light: 'Click cells to cycle light level',
@@ -454,6 +514,7 @@ export class MapCreator {
           floorColor: src.floorColor,
           ceilingColor: src.ceilingColor,
           wallColor: src.wallColor,
+          wallEdgeColors: src.wallEdgeColors ? { ...src.wallEdgeColors } : null,
           light: src.light,
           visible: src.visible,
           solid: src.solid,
@@ -501,7 +562,7 @@ export class MapCreator {
       return;
     }
 
-    // Left-click: start drag-painting for wall tool
+    // Left-click: start drag-painting for wall tool (edges only)
     if (e.button === 0 && this.activeTool === 'wall') {
       const world = this._screenToWorld(sx, sy);
       const gx = Math.floor(world.x);
@@ -511,15 +572,14 @@ export class MapCreator {
         const fy = world.y - gy;
         const edge = this._getEdge(fx, fy);
         if (edge) {
-          const cell = this.gameMap.getCell(gx, gy);
-          const flag = this._edgeToFlag(edge);
-          // Determine if we're adding or removing based on current state
-          this.paintWallAdd = !cell.hasWall(flag);
+          // Always add/repaint — clicking existing walls recolors them
+          this.paintWallAdd = true;
           this.isPainting = true;
           this.lastPaintKey = `${gx},${gy},${edge}`;
           // Lock axis: N/S edges = horizontal wall lines, E/W edges = vertical wall lines
           this.paintAxis = (edge === 'N' || edge === 'S') ? 'H' : 'V';
           this._applyWallPaint(gx, gy, edge);
+          this._applyEdgeColor(gx, gy, edge, this.wallColorBrush);
           this._render();
           e.preventDefault();
         }
@@ -539,6 +599,7 @@ export class MapCreator {
         e.preventDefault();
       }
     }
+
   }
 
   _onMouseMove(e) {
@@ -590,6 +651,10 @@ export class MapCreator {
           if (key !== this.lastPaintKey) {
             this.lastPaintKey = key;
             this._applyWallPaint(gx, gy, edge);
+            // Set per-edge wall color when adding walls
+            if (this.paintWallAdd) {
+              this._applyEdgeColor(gx, gy, edge, this.wallColorBrush);
+            }
           }
         } else {
           this.hoverEdge = null;
@@ -772,6 +837,34 @@ export class MapCreator {
     }
   }
 
+  /**
+   * Set per-edge wall color on a cell and mirror to the adjacent cell's opposite edge.
+   */
+  _applyEdgeColor(gx, gy, edge, color) {
+    const cell = this.gameMap.getCell(gx, gy);
+    if (!cell) return;
+    cell.wallEdgeColors[edge] = color;
+
+    // Mirror to adjacent cell's opposite edge
+    const map = this.gameMap;
+    if (edge === 'N' && gy > 0) {
+      const adj = map.getCell(gx, gy - 1);
+      if (adj) adj.wallEdgeColors.S = color;
+    }
+    if (edge === 'S' && gy < map.height - 1) {
+      const adj = map.getCell(gx, gy + 1);
+      if (adj) adj.wallEdgeColors.N = color;
+    }
+    if (edge === 'W' && gx > 0) {
+      const adj = map.getCell(gx - 1, gy);
+      if (adj) adj.wallEdgeColors.E = color;
+    }
+    if (edge === 'E' && gx < map.width - 1) {
+      const adj = map.getCell(gx + 1, gy);
+      if (adj) adj.wallEdgeColors.W = color;
+    }
+  }
+
   // --- Library ---
 
   _openLibrary(mode) {
@@ -792,6 +885,10 @@ export class MapCreator {
         this.panel.querySelector('#mc-height').value = this.gameMap.height;
         this.panel.querySelector('#mc-bg-opacity').value = Math.round(this.gameMap.bgOpacity * 100);
         this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
+        this.panel.querySelector('#mc-floor-opacity').value = Math.round(this.gameMap.floorOpacity * 100);
+        this.panel.querySelector('#mc-grid-opacity').value = Math.round(this.gameMap.gridOpacity * 100);
+        this.wallColorBrush = '#6b6b6b';
+        this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
         this._render();
       },
       () => {
@@ -862,7 +959,7 @@ export class MapCreator {
           ctx.stroke();
         } else {
           ctx.fillStyle = cell.floorColor;
-          ctx.globalAlpha = Math.max(0.15, cell.light) * 0.7;
+          ctx.globalAlpha = Math.max(0.15, cell.light) * gameMap.floorOpacity;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
         }
@@ -870,7 +967,7 @@ export class MapCreator {
     }
 
     // --- Grid lines ---
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = `rgba(255,255,255,${gameMap.gridOpacity})`;
     ctx.lineWidth = 1;
     for (let y = 0; y <= gameMap.height; y++) {
       ctx.beginPath();
@@ -885,28 +982,33 @@ export class MapCreator {
       ctx.stroke();
     }
 
-    // --- Walls ---
-    ctx.strokeStyle = '#d4c9a8';
+    // --- Walls (per-edge colors for DM painting) ---
     ctx.lineWidth = 3 * z;
     ctx.lineCap = 'round';
+    const defaultWallColor = '#6b6b6b';
 
     for (let y = 0; y < gameMap.height; y++) {
       for (let x = 0; x < gameMap.width; x++) {
         const cell = gameMap.cells[y][x];
         if (cell.solid) continue;
+        const ec = cell.wallEdgeColors;
         const px = x * ts;
         const py = y * ts;
 
         if (cell.hasWall(WALL_N)) {
+          ctx.strokeStyle = ec.N || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + ts, py); ctx.stroke();
         }
         if (cell.hasWall(WALL_S)) {
+          ctx.strokeStyle = ec.S || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py + ts); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_W)) {
+          ctx.strokeStyle = ec.W || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + ts); ctx.stroke();
         }
         if (cell.hasWall(WALL_E)) {
+          ctx.strokeStyle = ec.E || cell.wallColor || defaultWallColor;
           ctx.beginPath(); ctx.moveTo(px + ts, py); ctx.lineTo(px + ts, py + ts); ctx.stroke();
         }
       }
@@ -963,14 +1065,88 @@ export class MapCreator {
     ctx.restore();
   }
 
+  // --- WASD Keyboard Panning ---
+
+  _onKeyDown(e) {
+    // Ignore when typing in inputs
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    // Ignore if MapCreator panel is not visible
+    if (!this.panel || this.panel.style.display === 'none') return;
+
+    const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
+    if (!keys.includes(e.code)) return;
+    e.preventDefault();
+    this._keysDown.add(e.code);
+    if (!this._panRAF) {
+      this._panLastTime = performance.now();
+      this._panLoop();
+    }
+  }
+
+  _onKeyUp(e) {
+    this._keysDown.delete(e.code);
+    if (this._keysDown.size === 0 && this._panRAF) {
+      cancelAnimationFrame(this._panRAF);
+      this._panRAF = null;
+    }
+  }
+
+  _panLoop() {
+    const now = performance.now();
+    const dt = (now - this._panLastTime) / 1000;
+    this._panLastTime = now;
+
+    const panSpeed = 400; // pixels per second
+    const dist = panSpeed * dt;
+
+    if (this._keysDown.has('KeyW')) this.camera.y -= dist;
+    if (this._keysDown.has('KeyS')) this.camera.y += dist;
+    if (this._keysDown.has('KeyA')) this.camera.x -= dist;
+    if (this._keysDown.has('KeyD')) this.camera.x += dist;
+
+    // Q/E zoom toward canvas center
+    const zoomRate = 1.5; // per second
+    if (this._keysDown.has('KeyQ') || this._keysDown.has('KeyE')) {
+      const dir = this._keysDown.has('KeyQ') ? -1 : 1;
+      const oldZoom = this.camera.zoom;
+      const newZoom = Math.min(
+        this.zoomMax,
+        Math.max(this.zoomMin, oldZoom * (1 + dir * zoomRate * dt))
+      );
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      const worldBefore = this._screenToWorld(cx, cy);
+      this.camera.zoom = newZoom;
+      const newTs = this.tileSize * newZoom;
+      this.camera.x = worldBefore.x * newTs - cx;
+      this.camera.y = worldBefore.y * newTs - cy;
+    }
+
+    this._render();
+
+    if (this._keysDown.size > 0) {
+      this._panRAF = requestAnimationFrame(() => this._panLoop());
+    } else {
+      this._panRAF = null;
+    }
+  }
+
   // --- Cleanup ---
 
   destroy() {
+    if (this._panRAF) {
+      cancelAnimationFrame(this._panRAF);
+      this._panRAF = null;
+    }
     if (this.library) {
       this.library.destroy();
       this.library = null;
     }
     window.removeEventListener('resize', this._boundHandlers.resize);
+    window.removeEventListener('keydown', this._boundHandlers.keydown);
+    window.removeEventListener('keyup', this._boundHandlers.keyup);
     if (this.panel && this.panel.parentNode) {
       this.panel.parentNode.removeChild(this.panel);
     }

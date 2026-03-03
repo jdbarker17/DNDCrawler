@@ -110,8 +110,9 @@ function showMapCreator(gameId, existingMapData) {
     mapCreatorContainer,
     existingMap,
     (mapData) => {
-      // Save map to server then go to the game
+      // Save map to server, broadcast to connected players, then reload game view
       saveMapData(gameId, mapData).then(() => {
+        socket.sendMapChange(mapData);
         loadGame(gameId);
       }).catch(err => {
         console.error('Failed to save map:', err);
@@ -268,6 +269,7 @@ function initGameUI() {
   renderer2d.role = currentRole;
   rendererFP = new RaycastRenderer(canvasFP, gameMap);
   rendererFP.role = currentRole;
+  rendererFP._loadFloorTexture();
 
   // DM Tools – pass role so it can hide for non-DMs
   dmTools = new DMTools(
@@ -285,6 +287,10 @@ function initGameUI() {
     (mapData) => {
       applyNewMap(mapData);
       socket.sendMapChange(mapData);
+    },
+    // onMapSettings — DM changed a map-level setting (e.g. wall color)
+    (settings) => {
+      socket.sendMapSettings(settings);
     }
   );
 
@@ -592,6 +598,17 @@ function initGameUI() {
     applyNewMap(msg.mapData);
   });
 
+  // --- Map settings update from server (e.g. wall color change) ---
+  socket.onMapSettings((msg) => {
+    if (!gameMap || !msg.settings) return;
+    if (msg.settings.wallColor !== undefined) {
+      gameMap.wallColor = msg.settings.wallColor;
+    }
+    if (msg.settings.floorOpacity !== undefined) {
+      gameMap.floorOpacity = msg.settings.floorOpacity;
+    }
+  });
+
   // --- Visibility toggle from server (DM sees toggle state changes) ---
   socket.onVisibilityToggle((msg) => {
     const player = players.find(p => p.characterId === msg.characterId);
@@ -742,7 +759,10 @@ function applyNewMap(mapData) {
     renderer2d.gameMap = gameMap;
     renderer2d._loadBgImage();
   }
-  if (rendererFP) rendererFP.gameMap = gameMap;
+  if (rendererFP) {
+    rendererFP.gameMap = gameMap;
+    rendererFP._loadFloorTexture();
+  }
   if (minimapRenderer) minimapRenderer.gameMap = gameMap;
   if (dmTools) dmTools.gameMap = gameMap;
 

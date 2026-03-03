@@ -42,6 +42,7 @@ export class PlayerRoster {
     this.activePlayer = null;
     this.rangeCallbacks = rangeCallbacks || null;
     this.visibilityCallbacks = visibilityCallbacks || null;
+    this._collapsed = true;
 
     this._buildUI();
   }
@@ -57,41 +58,53 @@ export class PlayerRoster {
     this.panel = document.createElement('div');
     this.panel.id = 'player-roster';
     this.panel.innerHTML = `
-      <div class="roster-title">Party</div>
-      <div class="roster-user-info">
-        <span class="roster-role-badge ${this.role}">${this.role.toUpperCase()}</span>
-        <span class="roster-user-name">${this.currentUser.username}</span>
-      </div>
-      <div class="roster-list" id="roster-list"></div>
-      <button class="roster-add-btn" id="roster-add-btn">+ Add Character</button>
-      <div class="roster-add-form" id="roster-add-form" style="display:none">
-        <input type="text" id="new-player-name" placeholder="Character name" maxlength="20" />
-        <input type="text" id="new-player-class" placeholder="Class (optional)" maxlength="20" />
-        <div class="roster-color-row">
-          <label>Color</label>
-          <input type="color" id="new-player-color" value="#3498db" />
+      <button class="roster-toggle" id="roster-toggle">
+        <span class="roster-toggle-label">Party</span>
+        <span class="roster-toggle-arrow" id="roster-arrow">&#x25B2;</span>
+      </button>
+      <div class="roster-body" id="roster-body" style="display:none">
+        <div class="roster-user-info">
+          <span class="roster-role-badge ${this.role}">${this.role.toUpperCase()}</span>
+          <span class="roster-user-name">${this.currentUser.username}</span>
         </div>
-        <div class="roster-speed-row">
-          <label>Speed</label>
-          <select id="new-player-speed">
-            <option value="25">25 ft</option>
-            <option value="30" selected>30 ft</option>
-            <option value="35">35 ft</option>
-            <option value="40">40 ft</option>
-            <option value="45">45 ft</option>
-            <option value="50">50 ft</option>
-          </select>
-        </div>
-        <div class="roster-presets" id="roster-presets">
-          <span class="roster-presets-label">Quick-add:</span>
-        </div>
-        <div class="roster-form-actions">
-          <button class="roster-btn confirm" id="roster-confirm-add">Add</button>
-          <button class="roster-btn cancel" id="roster-cancel-add">Cancel</button>
+        <div class="roster-list" id="roster-list"></div>
+        <button class="roster-add-btn" id="roster-add-btn">+ Add Character</button>
+        <div class="roster-add-form" id="roster-add-form" style="display:none">
+          <input type="text" id="new-player-name" placeholder="Character name" maxlength="20" />
+          <input type="text" id="new-player-class" placeholder="Class (optional)" maxlength="20" />
+          <div class="roster-color-row">
+            <label>Color</label>
+            <input type="color" id="new-player-color" value="#3498db" />
+          </div>
+          <div class="roster-speed-row">
+            <label>Speed</label>
+            <select id="new-player-speed">
+              <option value="25">25 ft</option>
+              <option value="30" selected>30 ft</option>
+              <option value="35">35 ft</option>
+              <option value="40">40 ft</option>
+              <option value="45">45 ft</option>
+              <option value="50">50 ft</option>
+            </select>
+          </div>
+          <div class="roster-presets" id="roster-presets">
+            <span class="roster-presets-label">Quick-add:</span>
+          </div>
+          <div class="roster-form-actions">
+            <button class="roster-btn confirm" id="roster-confirm-add">Add</button>
+            <button class="roster-btn cancel" id="roster-cancel-add">Cancel</button>
+          </div>
         </div>
       </div>
     `;
     this.container.appendChild(this.panel);
+
+    // Toggle collapse
+    this.panel.querySelector('#roster-toggle').addEventListener('click', () => {
+      this._collapsed = !this._collapsed;
+      this.panel.querySelector('#roster-body').style.display = this._collapsed ? 'none' : 'block';
+      this.panel.querySelector('#roster-arrow').textContent = this._collapsed ? '\u25B2' : '\u25BC';
+    });
 
     // Preset buttons
     const presetsContainer = this.panel.querySelector('#roster-presets');
