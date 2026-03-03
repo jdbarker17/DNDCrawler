@@ -1252,10 +1252,12 @@ function onCanvasMouseDown(e) {
   const screenY = e.clientY - rect.top;
   const world = renderer2d.screenToWorld(screenX, screenY);
 
-  // --- Measurement tool: intercept before drag/pan ---
+  // --- Measurement tool: intercept before drag/pan (snap to cell centres) ---
   if (measureActive) {
-    measureStart = { x: world.x, y: world.y };
-    measureEnd = { x: world.x, y: world.y };
+    const sx = Math.floor(world.x) + 0.5;
+    const sy = Math.floor(world.y) + 0.5;
+    measureStart = { x: sx, y: sy };
+    measureEnd = { x: sx, y: sy };
     isMeasuring = true;
     e.preventDefault();
     return;
@@ -1284,14 +1286,14 @@ function onCanvasMouseDown(e) {
 }
 
 function onCanvasMouseMove(e) {
-  // --- Measurement tool: update end point ---
+  // --- Measurement tool: update end point (snap to cell centres) ---
   if (measureActive && isMeasuring && renderer2d) {
     const canvas2d = document.getElementById('canvas-2d');
     const rect = canvas2d.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     const world = renderer2d.screenToWorld(screenX, screenY);
-    measureEnd = { x: world.x, y: world.y };
+    measureEnd = { x: Math.floor(world.x) + 0.5, y: Math.floor(world.y) + 0.5 };
     return;
   }
 
