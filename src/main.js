@@ -20,6 +20,7 @@ import { AuthScreen } from './ui/AuthScreen.js';
 import { GameLobby } from './ui/GameLobby.js';
 import { MapCreator } from './ui/MapCreator.js';
 import { MapLibrary } from './ui/MapLibrary.js';
+import { UtilitiesPanel } from './ui/UtilitiesPanel.js';
 import {
   getCurrentUser, logout, getGameState, updateCharacter, saveMapData,
   getMessages, createMonster, getSavedMaps, getSavedMap,
@@ -251,6 +252,12 @@ let isPanning = false;
 let panLastX = 0;
 let panLastY = 0;
 let didPan = false;  // true if a pan-drag occurred — suppresses the next click
+// --- Measurement tool state ---
+let measureActive = false;
+let isMeasuring = false;
+let measureStart = null;   // { x, y } world coords
+let measureEnd = null;     // { x, y } world coords
+let utilitiesPanel = null;
 let yourTurnBanner = null;
 let yourTurnTimeout = null;
 
@@ -388,6 +395,21 @@ function initGameUI() {
     currentRole,
     (content, recipientId, roll) => {
       socket.sendChatMessage(content, recipientId, roll);
+    }
+  );
+
+  // Utilities panel (measurement tools, available to all users)
+  utilitiesPanel = new UtilitiesPanel(
+    document.getElementById('utilities-container'),
+    (active) => {
+      measureActive = active;
+      if (!active) {
+        isMeasuring = false;
+        measureStart = null;
+        measureEnd = null;
+      }
+      const c2d = document.getElementById('canvas-2d');
+      if (c2d) c2d.style.cursor = active ? 'crosshair' : '';
     }
   );
 
@@ -663,6 +685,11 @@ function cleanup() {
   const diceRollerEl = document.getElementById('dice-roller-container');
   if (diceRollerEl) diceRollerEl.innerHTML = '';
   if (diceRoller) { diceRoller.destroy(); diceRoller = null; }
+
+  const utilitiesEl = document.getElementById('utilities-container');
+  if (utilitiesEl) utilitiesEl.innerHTML = '';
+  if (utilitiesPanel) { utilitiesPanel.destroy(); utilitiesPanel = null; }
+  measureActive = false; isMeasuring = false; measureStart = null; measureEnd = null;
 
   // Clear "Your Turn" banner
   if (yourTurnBanner && yourTurnBanner.parentNode) {
@@ -957,8 +984,19 @@ function onKeyDown(e) {
     _toggleAllRangeCircles();
   }
 
-  if (e.code === 'Escape' && isPointerLocked) {
-    document.exitPointerLock();
+  if (e.code === 'Escape') {
+    if (isPointerLocked) {
+      document.exitPointerLock();
+    }
+    if (measureActive && utilitiesPanel) {
+      measureActive = false;
+      isMeasuring = false;
+      measureStart = null;
+      measureEnd = null;
+      utilitiesPanel.setMeasureActive(false);
+      const c2d = document.getElementById('canvas-2d');
+      if (c2d) c2d.style.cursor = '';
+    }
   }
 
   // Number keys 1-9 to quick-switch active player (respects ownership)
@@ -1214,6 +1252,15 @@ function onCanvasMouseDown(e) {
   const screenY = e.clientY - rect.top;
   const world = renderer2d.screenToWorld(screenX, screenY);
 
+  // --- Measurement tool: intercept before drag/pan ---
+  if (measureActive) {
+    measureStart = { x: world.x, y: world.y };
+    measureEnd = { x: world.x, y: world.y };
+    isMeasuring = true;
+    e.preventDefault();
+    return;
+  }
+
   // Hit-test players — DM can drag any, players can drag their own
   for (const player of players) {
     const dx = world.x - player.x;
@@ -1237,6 +1284,17 @@ function onCanvasMouseDown(e) {
 }
 
 function onCanvasMouseMove(e) {
+  // --- Measurement tool: update end point ---
+  if (measureActive && isMeasuring && renderer2d) {
+    const canvas2d = document.getElementById('canvas-2d');
+    const rect = canvas2d.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const world = renderer2d.screenToWorld(screenX, screenY);
+    measureEnd = { x: world.x, y: world.y };
+    return;
+  }
+
   // Map pan-drag
   if (isPanning && renderer2d) {
     const dx = e.clientX - panLastX;
@@ -1275,6 +1333,14 @@ function onCanvasMouseMove(e) {
 }
 
 function onCanvasMouseUp() {
+  // --- Measurement tool: end measurement ---
+  if (measureActive && isMeasuring) {
+    isMeasuring = false;
+    measureStart = null;
+    measureEnd = null;
+    return;
+  }
+
   const canvas2d = document.getElementById('canvas-2d');
 
   // End map pan
@@ -1491,7 +1557,10 @@ function gameLoop(timestamp) {
 
   if (activePlayer) {
     if (viewMode === '2d' || viewMode === 'split') {
-      renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId, allMovementData);
+      const measureData = (isMeasuring && measureStart && measureEnd)
+        ? { startX: measureStart.x, startY: measureStart.y, endX: measureEnd.x, endY: measureEnd.y }
+        : null;
+      renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId, allMovementData, measureData);
     }
 
     if (viewMode === 'fp' || viewMode === 'split') {

@@ -86,7 +86,7 @@ export class MapRenderer2D {
    * @param {number|null} [turnActiveCharId=null] – characterId of the active-turn player
    * @param {object[]} [movementDataList=[]] – array of movement data entries for range circles
    */
-  draw(players, activePlayer, actionMode = false, turnActiveCharId = null, movementDataList = []) {
+  draw(players, activePlayer, actionMode = false, turnActiveCharId = null, movementDataList = [], measureData = null) {
     const { ctx, gameMap, tileSize, camera } = this;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -443,6 +443,100 @@ export class MapRenderer2D {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+
+    // --- Measurement overlay ---
+    if (measureData) {
+      this._drawMeasurement(ctx, measureData, ts);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw measurement arrow with distance label.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{ startX: number, startY: number, endX: number, endY: number }} data – world coords
+   * @param {number} ts – scaled tile size (tileSize * zoom)
+   */
+  _drawMeasurement(ctx, data, ts) {
+    const sx = data.startX * ts;
+    const sy = data.startY * ts;
+    const ex = data.endX * ts;
+    const ey = data.endY * ts;
+
+    const dx = data.endX - data.startX;
+    const dy = data.endY - data.startY;
+    const distCells = Math.sqrt(dx * dx + dy * dy);
+
+    // Skip tiny measurements
+    if (distCells < 0.05) return;
+
+    const distFeet = Math.round(distCells * 5);
+    const angle = Math.atan2(ey - sy, ex - sx);
+    const gold = '#c9a84c';
+
+    // --- Line ---
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = gold;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // --- Start circle ---
+    ctx.fillStyle = gold;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- Arrowhead ---
+    const headLen = 14;
+    const headAngle = Math.PI / 6;
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - headLen * Math.cos(angle - headAngle), ey - headLen * Math.sin(angle - headAngle));
+    ctx.lineTo(ex - headLen * Math.cos(angle + headAngle), ey - headLen * Math.sin(angle + headAngle));
+    ctx.closePath();
+    ctx.fillStyle = gold;
+    ctx.fill();
+
+    // --- Distance label at midpoint ---
+    const mx = (sx + ex) / 2;
+    const my = (sy + ey) / 2;
+    const label = `${distFeet}ft`;
+
+    ctx.font = 'bold 14px sans-serif';
+    const tm = ctx.measureText(label);
+    const padX = 6;
+    const padY = 4;
+    const lw = tm.width + padX * 2;
+    const lh = 18 + padY * 2;
+
+    // Background pill
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    const pillRadius = 8;
+    const px = mx - lw / 2;
+    const py = my - lh - 8;
+    ctx.beginPath();
+    ctx.moveTo(px + pillRadius, py);
+    ctx.lineTo(px + lw - pillRadius, py);
+    ctx.quadraticCurveTo(px + lw, py, px + lw, py + pillRadius);
+    ctx.lineTo(px + lw, py + lh - pillRadius);
+    ctx.quadraticCurveTo(px + lw, py + lh, px + lw - pillRadius, py + lh);
+    ctx.lineTo(px + pillRadius, py + lh);
+    ctx.quadraticCurveTo(px, py + lh, px, py + lh - pillRadius);
+    ctx.lineTo(px, py + pillRadius);
+    ctx.quadraticCurveTo(px, py, px + pillRadius, py);
+    ctx.closePath();
+    ctx.fill();
+
+    // Label text
+    ctx.fillStyle = gold;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, mx, py + lh / 2);
 
     ctx.restore();
   }
