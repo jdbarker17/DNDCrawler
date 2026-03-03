@@ -73,6 +73,11 @@ export class MapCreator {
     this.lastPaintKey = null; // "gx,gy,edge" to avoid re-toggling same wall
     this.paintAxis = null; // 'H' (N/S edges) or 'V' (E/W edges) — locks drag direction
 
+    // WASD panning state
+    this._keysDown = new Set();
+    this._panRAF = null;
+    this._panLastTime = 0;
+
     this._boundHandlers = {};
     this._buildUI();
     this._loadBackgroundImage();
@@ -117,6 +122,8 @@ export class MapCreator {
             <button class="mc-btn small mc-danger" id="mc-clear-img" style="display:none">Remove Image</button>
             <label>Opacity <input type="range" id="mc-bg-opacity" min="0" max="100" value="${Math.round(this.gameMap.bgOpacity * 100)}"></label>
             <label>Scale <input type="range" id="mc-bg-scale" min="10" max="300" value="${Math.round(this.gameMap.bgScale * 100)}"></label>
+            <label>Floor Opacity <input type="range" id="mc-floor-opacity" min="0" max="100" value="${Math.round(this.gameMap.floorOpacity * 100)}"></label>
+            <label>Grid Lines <input type="range" id="mc-grid-opacity" min="0" max="100" value="${Math.round(this.gameMap.gridOpacity * 100)}"></label>
             <div class="mc-hint">Shift+drag to reposition image</div>
           </div>
           <!-- Tools -->
@@ -233,6 +240,14 @@ export class MapCreator {
       this.gameMap.bgScale = parseInt(e.target.value, 10) / 100;
       this._render();
     });
+    this.panel.querySelector('#mc-floor-opacity').addEventListener('input', (e) => {
+      this.gameMap.floorOpacity = parseInt(e.target.value, 10) / 100;
+      this._render();
+    });
+    this.panel.querySelector('#mc-grid-opacity').addEventListener('input', (e) => {
+      this.gameMap.gridOpacity = parseInt(e.target.value, 10) / 100;
+      this._render();
+    });
 
     // Wall color presets (per-cell painting brush)
     this.panel.querySelectorAll('.mc-wall-preset').forEach(btn => {
@@ -285,6 +300,8 @@ export class MapCreator {
       this.panel.querySelector('#mc-height').value = h;
       this.panel.querySelector('#mc-bg-opacity').value = 50;
       this.panel.querySelector('#mc-bg-scale').value = 100;
+      this.panel.querySelector('#mc-floor-opacity').value = 70;
+      this.panel.querySelector('#mc-grid-opacity').value = 12;
       this.wallColorBrush = '#6b6b6b';
       this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
       this.panel.querySelector('#mc-clear-img').style.display = 'none';
@@ -332,6 +349,12 @@ export class MapCreator {
     // Window resize
     this._boundHandlers.resize = () => this._resizeCanvas();
     window.addEventListener('resize', this._boundHandlers.resize);
+
+    // WASD keyboard panning
+    this._boundHandlers.keydown = (e) => this._onKeyDown(e);
+    this._boundHandlers.keyup = (e) => this._onKeyUp(e);
+    window.addEventListener('keydown', this._boundHandlers.keydown);
+    window.addEventListener('keyup', this._boundHandlers.keyup);
   }
 
   _updateToolHint() {
@@ -862,6 +885,8 @@ export class MapCreator {
         this.panel.querySelector('#mc-height').value = this.gameMap.height;
         this.panel.querySelector('#mc-bg-opacity').value = Math.round(this.gameMap.bgOpacity * 100);
         this.panel.querySelector('#mc-bg-scale').value = Math.round(this.gameMap.bgScale * 100);
+        this.panel.querySelector('#mc-floor-opacity').value = Math.round(this.gameMap.floorOpacity * 100);
+        this.panel.querySelector('#mc-grid-opacity').value = Math.round(this.gameMap.gridOpacity * 100);
         this.wallColorBrush = '#6b6b6b';
         this.panel.querySelector('#mc-wall-color').value = '#6b6b6b';
         this._render();
@@ -934,7 +959,7 @@ export class MapCreator {
           ctx.stroke();
         } else {
           ctx.fillStyle = cell.floorColor;
-          ctx.globalAlpha = Math.max(0.15, cell.light) * 0.7;
+          ctx.globalAlpha = Math.max(0.15, cell.light) * gameMap.floorOpacity;
           ctx.fillRect(px, py, ts, ts);
           ctx.globalAlpha = 1;
         }
@@ -942,7 +967,7 @@ export class MapCreator {
     }
 
     // --- Grid lines ---
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeStyle = `rgba(255,255,255,${gameMap.gridOpacity})`;
     ctx.lineWidth = 1;
     for (let y = 0; y <= gameMap.height; y++) {
       ctx.beginPath();
@@ -1040,14 +1065,88 @@ export class MapCreator {
     ctx.restore();
   }
 
+  // --- WASD Keyboard Panning ---
+
+  _onKeyDown(e) {
+    // Ignore when typing in inputs
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    // Ignore if MapCreator panel is not visible
+    if (!this.panel || this.panel.style.display === 'none') return;
+
+    const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'];
+    if (!keys.includes(e.code)) return;
+    e.preventDefault();
+    this._keysDown.add(e.code);
+    if (!this._panRAF) {
+      this._panLastTime = performance.now();
+      this._panLoop();
+    }
+  }
+
+  _onKeyUp(e) {
+    this._keysDown.delete(e.code);
+    if (this._keysDown.size === 0 && this._panRAF) {
+      cancelAnimationFrame(this._panRAF);
+      this._panRAF = null;
+    }
+  }
+
+  _panLoop() {
+    const now = performance.now();
+    const dt = (now - this._panLastTime) / 1000;
+    this._panLastTime = now;
+
+    const panSpeed = 400; // pixels per second
+    const dist = panSpeed * dt;
+
+    if (this._keysDown.has('KeyW')) this.camera.y -= dist;
+    if (this._keysDown.has('KeyS')) this.camera.y += dist;
+    if (this._keysDown.has('KeyA')) this.camera.x -= dist;
+    if (this._keysDown.has('KeyD')) this.camera.x += dist;
+
+    // Q/E zoom toward canvas center
+    const zoomRate = 1.5; // per second
+    if (this._keysDown.has('KeyQ') || this._keysDown.has('KeyE')) {
+      const dir = this._keysDown.has('KeyQ') ? -1 : 1;
+      const oldZoom = this.camera.zoom;
+      const newZoom = Math.min(
+        this.zoomMax,
+        Math.max(this.zoomMin, oldZoom * (1 + dir * zoomRate * dt))
+      );
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      const worldBefore = this._screenToWorld(cx, cy);
+      this.camera.zoom = newZoom;
+      const newTs = this.tileSize * newZoom;
+      this.camera.x = worldBefore.x * newTs - cx;
+      this.camera.y = worldBefore.y * newTs - cy;
+    }
+
+    this._render();
+
+    if (this._keysDown.size > 0) {
+      this._panRAF = requestAnimationFrame(() => this._panLoop());
+    } else {
+      this._panRAF = null;
+    }
+  }
+
   // --- Cleanup ---
 
   destroy() {
+    if (this._panRAF) {
+      cancelAnimationFrame(this._panRAF);
+      this._panRAF = null;
+    }
     if (this.library) {
       this.library.destroy();
       this.library = null;
     }
     window.removeEventListener('resize', this._boundHandlers.resize);
+    window.removeEventListener('keydown', this._boundHandlers.keydown);
+    window.removeEventListener('keyup', this._boundHandlers.keyup);
     if (this.panel && this.panel.parentNode) {
       this.panel.parentNode.removeChild(this.panel);
     }

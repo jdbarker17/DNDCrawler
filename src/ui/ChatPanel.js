@@ -16,7 +16,7 @@ export class ChatPanel {
     this.container = container;
     this.currentUser = currentUser;
     this.onSend = onSend;
-    this.collapsed = false;
+    this.collapsed = true;
     this.activeTab = 'group'; // 'group' or a recipientUserId (number)
 
     // Conversations: keyed by 'group' or recipientUserId
@@ -45,9 +45,9 @@ export class ChatPanel {
       <div class="chat-title-bar">
         <span class="chat-title">Chat</span>
         <span class="chat-unread-total" style="display:none"></span>
-        <button class="chat-collapse-btn">&minus;</button>
+        <button class="chat-collapse-btn">+</button>
       </div>
-      <div class="chat-body">
+      <div class="chat-body" style="display:none">
         <div class="chat-tabs"></div>
         <div class="chat-messages"></div>
         <div class="chat-input-area">

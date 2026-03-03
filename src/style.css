@@ -164,6 +164,43 @@ html, body {
   letter-spacing: 1px;
 }
 
+.dm-toolbar-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(201, 168, 76, 0.15);
+  border: none;
+  color: #c9a84c;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.dm-toolbar-toggle:hover {
+  background: rgba(201, 168, 76, 0.25);
+}
+
+.dm-toolbar-toggle-label {
+  flex: 1;
+}
+
+.dm-toolbar-toggle-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.dm-toolbar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0;
+}
+
 .dm-toggle {
   display: flex;
   align-items: center;
@@ -378,6 +415,42 @@ html, body {
   color: #c9a84c;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.roster-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(201, 168, 76, 0.15);
+  border: none;
+  color: #c9a84c;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.roster-toggle:hover {
+  background: rgba(201, 168, 76, 0.25);
+}
+
+.roster-toggle-label {
+  flex: 1;
+}
+
+.roster-toggle-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.roster-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .roster-list {

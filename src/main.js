@@ -110,8 +110,9 @@ function showMapCreator(gameId, existingMapData) {
     mapCreatorContainer,
     existingMap,
     (mapData) => {
-      // Save map to server then go to the game
+      // Save map to server, broadcast to connected players, then reload game view
       saveMapData(gameId, mapData).then(() => {
+        socket.sendMapChange(mapData);
         loadGame(gameId);
       }).catch(err => {
         console.error('Failed to save map:', err);
@@ -602,6 +603,9 @@ function initGameUI() {
     if (!gameMap || !msg.settings) return;
     if (msg.settings.wallColor !== undefined) {
       gameMap.wallColor = msg.settings.wallColor;
+    }
+    if (msg.settings.floorOpacity !== undefined) {
+      gameMap.floorOpacity = msg.settings.floorOpacity;
     }
   });
 

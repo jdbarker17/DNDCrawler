@@ -30,6 +30,7 @@ export class DMTools {
     this.onMapSwitch = onMapSwitch;
     this.onMapSettings = onMapSettings;
     this.actionModeEnabled = false;
+    this._collapsed = true;
 
     // Only build UI for DM
     if (this.role === 'dm') {
@@ -41,60 +42,72 @@ export class DMTools {
     this.toolbar = document.createElement('div');
     this.toolbar.id = 'dm-toolbar';
     this.toolbar.innerHTML = `
-      <div class="dm-title">DM Tools</div>
-      <div class="dm-map-select-row">
-        <select id="dm-map-select" class="dm-map-select">
-          <option value="">— Switch Map —</option>
-        </select>
-      </div>
-      <div id="dm-map-preview" class="dm-map-preview" style="display:none">
-        <div class="dm-map-preview-header">
-          <span id="dm-map-preview-name" class="dm-map-preview-name"></span>
-          <span id="dm-map-preview-size" class="dm-map-preview-size"></span>
+      <button class="dm-toolbar-toggle" id="dm-toolbar-toggle">
+        <span class="dm-toolbar-toggle-label">DM Tools</span>
+        <span class="dm-toolbar-toggle-arrow" id="dm-toolbar-arrow">&#x25B2;</span>
+      </button>
+      <div class="dm-toolbar-body" id="dm-toolbar-body" style="display:none">
+        <div class="dm-map-select-row">
+          <select id="dm-map-select" class="dm-map-select">
+            <option value="">— Switch Map —</option>
+          </select>
         </div>
-        <canvas id="dm-map-preview-canvas" class="dm-map-preview-canvas" width="220" height="140"></canvas>
-        <div class="dm-map-preview-actions">
-          <button class="dm-btn dm-map-preview-switch" id="dm-map-preview-switch">Switch</button>
-          <button class="dm-btn dm-map-preview-cancel" id="dm-map-preview-cancel">Cancel</button>
+        <div id="dm-map-preview" class="dm-map-preview" style="display:none">
+          <div class="dm-map-preview-header">
+            <span id="dm-map-preview-name" class="dm-map-preview-name"></span>
+            <span id="dm-map-preview-size" class="dm-map-preview-size"></span>
+          </div>
+          <canvas id="dm-map-preview-canvas" class="dm-map-preview-canvas" width="220" height="140"></canvas>
+          <div class="dm-map-preview-actions">
+            <button class="dm-btn dm-map-preview-switch" id="dm-map-preview-switch">Switch</button>
+            <button class="dm-btn dm-map-preview-cancel" id="dm-map-preview-cancel">Cancel</button>
+          </div>
         </div>
-      </div>
-      <label class="dm-toggle">
-        <input type="checkbox" id="dm-mode-toggle">
-        <span>Edit Mode</span>
-      </label>
-      <div class="dm-tools-group" id="dm-tools-group">
-        <button class="dm-btn active" data-tool="wall">Wall</button>
-        <button class="dm-btn" data-tool="light">Light</button>
-        <button class="dm-btn" data-tool="floor">Floor Color</button>
-        <button class="dm-btn" data-tool="fog">Fog</button>
-        <button class="dm-btn" data-tool="objvis">Obj Vis</button>
-      </div>
-      <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
-      <div class="dm-wall-theme" id="dm-wall-theme">
-        <div class="dm-wall-theme-label">Wall Color</div>
-        <div class="dm-wall-theme-presets">
-          <button class="dm-wall-preset" data-color="" title="Default"
-                  style="background:#d4c9a8;border:2px solid #888"></button>
-          <button class="dm-wall-preset" data-color="#7a5c3a" title="Wood"
-                  style="background:#7a5c3a"></button>
-          <button class="dm-wall-preset" data-color="#3a3a3a" title="Dark Stone"
-                  style="background:#3a3a3a"></button>
-          <button class="dm-wall-preset" data-color="#c4a86b" title="Sandstone"
-                  style="background:#c4a86b"></button>
+        <label class="dm-toggle">
+          <input type="checkbox" id="dm-mode-toggle">
+          <span>Edit Mode</span>
+        </label>
+        <div class="dm-tools-group" id="dm-tools-group">
+          <button class="dm-btn active" data-tool="wall">Wall</button>
+          <button class="dm-btn" data-tool="light">Light</button>
+          <button class="dm-btn" data-tool="floor">Floor Color</button>
+          <button class="dm-btn" data-tool="fog">Fog</button>
+          <button class="dm-btn" data-tool="objvis">Obj Vis</button>
         </div>
-        <input type="color" id="dm-wall-color-picker" class="dm-wall-color-picker"
-               value="#6b6b6b" title="Custom wall color">
+        <div class="dm-hint" id="dm-hint">Click cell edges to toggle walls</div>
+        <div class="dm-wall-theme" id="dm-wall-theme">
+          <div class="dm-wall-theme-label">Wall Color</div>
+          <div class="dm-wall-theme-presets">
+            <button class="dm-wall-preset" data-color="" title="Default"
+                    style="background:#d4c9a8;border:2px solid #888"></button>
+            <button class="dm-wall-preset" data-color="#7a5c3a" title="Wood"
+                    style="background:#7a5c3a"></button>
+            <button class="dm-wall-preset" data-color="#3a3a3a" title="Dark Stone"
+                    style="background:#3a3a3a"></button>
+            <button class="dm-wall-preset" data-color="#c4a86b" title="Sandstone"
+                    style="background:#c4a86b"></button>
+          </div>
+          <input type="color" id="dm-wall-color-picker" class="dm-wall-color-picker"
+                 value="#6b6b6b" title="Custom wall color">
+        </div>
+        <div class="dm-divider"></div>
+        <label class="dm-toggle dm-action-toggle">
+          <input type="checkbox" id="dm-action-mode-toggle">
+          <span>Action Mode</span>
+        </label>
+        <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
+        <div class="dm-divider"></div>
+        <button class="dm-btn dm-edit-map-btn" id="dm-edit-map">Edit Map</button>
       </div>
-      <div class="dm-divider"></div>
-      <label class="dm-toggle dm-action-toggle">
-        <input type="checkbox" id="dm-action-mode-toggle">
-        <span>Action Mode</span>
-      </label>
-      <button class="dm-btn dm-drag-btn" id="dm-drag-btn" style="display:none">Drag Player</button>
-      <div class="dm-divider"></div>
-      <button class="dm-btn dm-edit-map-btn" id="dm-edit-map">Edit Map</button>
     `;
     container.appendChild(this.toolbar);
+
+    // Toggle collapse
+    this.toolbar.querySelector('#dm-toolbar-toggle').addEventListener('click', () => {
+      this._collapsed = !this._collapsed;
+      this.toolbar.querySelector('#dm-toolbar-body').style.display = this._collapsed ? 'none' : 'block';
+      this.toolbar.querySelector('#dm-toolbar-arrow').textContent = this._collapsed ? '\u25B2' : '\u25BC';
+    });
 
     // Toggle edit mode
     this.toolbar.querySelector('#dm-mode-toggle').addEventListener('change', (e) => {
@@ -460,19 +473,19 @@ export class DMTools {
     const cells = mapData.cells;
 
     // Floor tiles
+    const floorOpacity = mapData.floorOpacity ?? 0.7;
     for (let y = 0; y < mapH; y++) {
       for (let x = 0; x < mapW; x++) {
         const cell = cells[y][x];
         const px = x * ts;
         const py = y * ts;
-
         if (cell.solid) {
           ctx.fillStyle = '#111';
         } else {
           ctx.fillStyle = cell.floorColor || '#3a3a2a';
-          // Apply light level
+          // Apply light level and floor opacity
           const light = cell.light ?? 1;
-          if (light < 1) ctx.globalAlpha = 0.3 + light * 0.7;
+          ctx.globalAlpha = (0.3 + light * 0.7) * floorOpacity;
         }
         ctx.fillRect(px, py, ts, ts);
         ctx.globalAlpha = 1;
