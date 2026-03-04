@@ -453,92 +453,147 @@ export class MapRenderer2D {
   }
 
   /**
-   * Draw measurement arrow with distance label.
+   * Parse a CSS hex colour into {r,g,b} (0-255).
+   */
+  _hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const n = h.length === 3
+      ? parseInt(h[0]+h[0]+h[1]+h[1]+h[2]+h[2], 16)
+      : parseInt(h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  /**
+   * Draw multi-segment measurement path with per-segment labels and running total.
    * @param {CanvasRenderingContext2D} ctx
-   * @param {{ startX: number, startY: number, endX: number, endY: number }} data – world coords
+   * @param {{ points: {x:number,y:number}[], endX: number, endY: number, color: string }} data
    * @param {number} ts – scaled tile size (tileSize * zoom)
    */
   _drawMeasurement(ctx, data, ts) {
-    const sx = data.startX * ts;
-    const sy = data.startY * ts;
-    const ex = data.endX * ts;
-    const ey = data.endY * ts;
+    const { points } = data;
+    if (!points || points.length === 0) return;
 
-    const dx = data.endX - data.startX;
-    const dy = data.endY - data.startY;
-    const distCells = Math.sqrt(dx * dx + dy * dy);
+    // Build full vertex list: all anchors + current cursor
+    const verts = [...points, { x: data.endX, y: data.endY }];
+    if (verts.length < 2) return;
 
-    // Skip tiny measurements
-    if (distCells < 0.05) return;
-
-    const distFeet = Math.round(distCells * 5);
-    const angle = Math.atan2(ey - sy, ex - sx);
-    const gold = '#c9a84c';
-
-    // --- Line ---
+    const themeColor = data.color || '#c9a84c';
+    const { r, g, b } = this._hexToRgb(themeColor);
+    const dimColor = `rgba(${r}, ${g}, ${b}, 0.55)`;
+    const totalBg = `rgba(${r}, ${g}, ${b}, 0.35)`;
     ctx.save();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = gold;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
 
-    // --- Start circle ---
-    ctx.fillStyle = gold;
-    ctx.beginPath();
-    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
-    ctx.fill();
+    let runningTotal = 0;
 
-    // --- Arrowhead ---
-    const headLen = 14;
-    const headAngle = Math.PI / 6;
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - headLen * Math.cos(angle - headAngle), ey - headLen * Math.sin(angle - headAngle));
-    ctx.lineTo(ex - headLen * Math.cos(angle + headAngle), ey - headLen * Math.sin(angle + headAngle));
-    ctx.closePath();
-    ctx.fillStyle = gold;
-    ctx.fill();
+    for (let i = 0; i < verts.length - 1; i++) {
+      const a = verts[i];
+      const bv = verts[i + 1];
+      const ax = a.x * ts;
+      const ay = a.y * ts;
+      const bx = bv.x * ts;
+      const by = bv.y * ts;
 
-    // --- Distance label at midpoint ---
-    const mx = (sx + ex) / 2;
-    const my = (sy + ey) / 2;
-    const label = `${distFeet}ft`;
+      const dx = bv.x - a.x;
+      const dy = bv.y - a.y;
+      const segCells = Math.sqrt(dx * dx + dy * dy);
+      const segFeet = Math.round(segCells * 5);
+      runningTotal += segFeet;
 
+      const isLast = i === verts.length - 2;
+      const angle = Math.atan2(by - ay, bx - ax);
+
+      // --- Segment line ---
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = themeColor;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+
+      // --- Anchor dot ---
+      ctx.fillStyle = themeColor;
+      ctx.beginPath();
+      ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // --- Arrowhead on last segment ---
+      if (isLast && segCells > 0.05) {
+        const headLen = 14;
+        const headAngle = Math.PI / 6;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx - headLen * Math.cos(angle - headAngle), by - headLen * Math.sin(angle - headAngle));
+        ctx.lineTo(bx - headLen * Math.cos(angle + headAngle), by - headLen * Math.sin(angle + headAngle));
+        ctx.closePath();
+        ctx.fillStyle = themeColor;
+        ctx.fill();
+      }
+
+      // --- Per-segment distance label at midpoint ---
+      if (segCells > 0.05) {
+        const mx = (ax + bx) / 2;
+        const my = (ay + by) / 2;
+        const segLabel = `${segFeet}ft`;
+
+        this._drawMeasurePill(ctx, mx, my - 8, segLabel, isLast ? themeColor : dimColor);
+      }
+    }
+
+    // --- Running total label at midpoint of full path (only if more than one segment) ---
+    if (verts.length > 2) {
+      const first = verts[0];
+      const last = verts[verts.length - 1];
+      const mx = ((first.x + last.x) / 2) * ts;
+      const my = ((first.y + last.y) / 2) * ts;
+      const totalLabel = `Total: ${runningTotal}ft`;
+
+      this._drawMeasurePill(ctx, mx, my + 18, totalLabel, '#fff', totalBg);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw a pill-shaped label.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} cx – screen X centre of pill
+   * @param {number} cy – screen Y centre-ish (pill drawn above this point)
+   * @param {string} label
+   * @param {string} color – text/label colour
+   * @param {string} [bg='rgba(0,0,0,0.75)'] – pill background colour
+   */
+  _drawMeasurePill(ctx, cx, cy, label, color, bg = 'rgba(0,0,0,0.75)') {
     ctx.font = 'bold 14px sans-serif';
     const tm = ctx.measureText(label);
     const padX = 6;
     const padY = 4;
     const lw = tm.width + padX * 2;
     const lh = 18 + padY * 2;
+    const r = 8;
+    const px = cx - lw / 2;
+    const py = cy - lh;
 
     // Background pill
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    const pillRadius = 8;
-    const px = mx - lw / 2;
-    const py = my - lh - 8;
+    ctx.fillStyle = bg;
     ctx.beginPath();
-    ctx.moveTo(px + pillRadius, py);
-    ctx.lineTo(px + lw - pillRadius, py);
-    ctx.quadraticCurveTo(px + lw, py, px + lw, py + pillRadius);
-    ctx.lineTo(px + lw, py + lh - pillRadius);
-    ctx.quadraticCurveTo(px + lw, py + lh, px + lw - pillRadius, py + lh);
-    ctx.lineTo(px + pillRadius, py + lh);
-    ctx.quadraticCurveTo(px, py + lh, px, py + lh - pillRadius);
-    ctx.lineTo(px, py + pillRadius);
-    ctx.quadraticCurveTo(px, py, px + pillRadius, py);
+    ctx.moveTo(px + r, py);
+    ctx.lineTo(px + lw - r, py);
+    ctx.quadraticCurveTo(px + lw, py, px + lw, py + r);
+    ctx.lineTo(px + lw, py + lh - r);
+    ctx.quadraticCurveTo(px + lw, py + lh, px + lw - r, py + lh);
+    ctx.lineTo(px + r, py + lh);
+    ctx.quadraticCurveTo(px, py + lh, px, py + lh - r);
+    ctx.lineTo(px, py + r);
+    ctx.quadraticCurveTo(px, py, px + r, py);
     ctx.closePath();
     ctx.fill();
 
     // Label text
-    ctx.fillStyle = gold;
+    ctx.fillStyle = color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, mx, py + lh / 2);
-
-    ctx.restore();
+    ctx.fillText(label, cx, py + lh / 2);
   }
 
   /**

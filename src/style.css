@@ -148,12 +148,11 @@ html, body {
   background: rgba(20, 20, 20, 0.92);
   border: 1px solid #444;
   border-radius: 6px;
-  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   min-width: 220px;
   max-width: 260px;
+  overflow: hidden;
 }
 
 .dm-title {
@@ -198,7 +197,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 6px 0;
+  padding: 8px;
 }
 
 .dm-toggle {
@@ -391,22 +390,30 @@ html, body {
 }
 
 /* ---- Player Roster ---- */
-#player-roster {
+/* ---- Left panel stack (roster + utilities) ---- */
+
+#left-panel-stack {
   position: absolute;
   top: 52px;
   left: 12px;
-  background: rgba(20, 20, 20, 0.92);
-  border: 1px solid #444;
-  border-radius: 6px;
-  padding: 10px 12px;
   z-index: 20;
-  min-width: 200px;
-  max-width: 260px;
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 220px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+#player-roster {
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid #444;
+  border-radius: 6px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .roster-title {
@@ -451,23 +458,20 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px;
 }
 
 /* ---- Utilities Panel ---- */
 
 #utilities-container {
-  position: absolute;
-  top: 110px;
-  left: 12px;
-  z-index: 18;
+  width: 100%;
 }
 
 #utilities-panel {
   background: rgba(20, 20, 20, 0.92);
   border: 1px solid #444;
   border-radius: 6px;
-  min-width: 160px;
-  max-width: 200px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1578,8 +1582,8 @@ html, body {
   z-index: 19;
 }
 
-/* Shift turn tracker below the roster when both visible */
-#roster-container:not(:empty) ~ #turn-tracker-container {
+/* Shift turn tracker below the left panel stack when both visible */
+#left-panel-stack:not(:empty) ~ #turn-tracker-container {
   top: auto;
   bottom: 16px;
 }

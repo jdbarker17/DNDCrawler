@@ -255,8 +255,8 @@ let didPan = false;  // true if a pan-drag occurred — suppresses the next clic
 // --- Measurement tool state ---
 let measureActive = false;
 let isMeasuring = false;
-let measureStart = null;   // { x, y } world coords
-let measureEnd = null;     // { x, y } world coords
+let measurePoints = [];    // array of { x, y } waypoints (anchors/pivots)
+let measureEnd = null;     // { x, y } current cursor world coords (snapped)
 let utilitiesPanel = null;
 let yourTurnBanner = null;
 let yourTurnTimeout = null;
@@ -405,7 +405,7 @@ function initGameUI() {
       measureActive = active;
       if (!active) {
         isMeasuring = false;
-        measureStart = null;
+        measurePoints = [];
         measureEnd = null;
       }
       const c2d = document.getElementById('canvas-2d');
@@ -689,7 +689,7 @@ function cleanup() {
   const utilitiesEl = document.getElementById('utilities-container');
   if (utilitiesEl) utilitiesEl.innerHTML = '';
   if (utilitiesPanel) { utilitiesPanel.destroy(); utilitiesPanel = null; }
-  measureActive = false; isMeasuring = false; measureStart = null; measureEnd = null;
+  measureActive = false; isMeasuring = false; measurePoints = []; measureEnd = null;
 
   // Clear "Your Turn" banner
   if (yourTurnBanner && yourTurnBanner.parentNode) {
@@ -970,7 +970,19 @@ function onKeyDown(e) {
     updateCanvasVisibility();
   }
 
-  if (e.code === 'KeyM') {
+  // M = toggle measure tool, Shift+M = toggle minimap
+  if (e.code === 'KeyM' && !e.shiftKey) {
+    measureActive = !measureActive;
+    if (!measureActive) {
+      isMeasuring = false;
+      measurePoints = [];
+      measureEnd = null;
+    }
+    if (utilitiesPanel) utilitiesPanel.setMeasureActive(measureActive);
+    const c2d = document.getElementById('canvas-2d');
+    if (c2d) c2d.style.cursor = measureActive ? 'crosshair' : '';
+  }
+  if (e.code === 'KeyM' && e.shiftKey) {
     minimapEnabled = !minimapEnabled;
     const minimapCanvas = document.getElementById('minimap');
     if (minimapCanvas) minimapCanvas.style.display = minimapEnabled ? 'block' : 'none';
@@ -991,12 +1003,18 @@ function onKeyDown(e) {
     if (measureActive && utilitiesPanel) {
       measureActive = false;
       isMeasuring = false;
-      measureStart = null;
+      measurePoints = [];
       measureEnd = null;
       utilitiesPanel.setMeasureActive(false);
       const c2d = document.getElementById('canvas-2d');
       if (c2d) c2d.style.cursor = '';
     }
+  }
+
+  // Space bar: add measurement pivot point
+  if (e.code === 'Space' && measureActive && isMeasuring && measureEnd) {
+    e.preventDefault();
+    measurePoints.push({ x: measureEnd.x, y: measureEnd.y });
   }
 
   // Number keys 1-9 to quick-switch active player (respects ownership)
@@ -1256,7 +1274,7 @@ function onCanvasMouseDown(e) {
   if (measureActive) {
     const sx = Math.floor(world.x) + 0.5;
     const sy = Math.floor(world.y) + 0.5;
-    measureStart = { x: sx, y: sy };
+    measurePoints = [{ x: sx, y: sy }];
     measureEnd = { x: sx, y: sy };
     isMeasuring = true;
     e.preventDefault();
@@ -1338,7 +1356,7 @@ function onCanvasMouseUp() {
   // --- Measurement tool: end measurement ---
   if (measureActive && isMeasuring) {
     isMeasuring = false;
-    measureStart = null;
+    measurePoints = [];
     measureEnd = null;
     return;
   }
@@ -1559,8 +1577,8 @@ function gameLoop(timestamp) {
 
   if (activePlayer) {
     if (viewMode === '2d' || viewMode === 'split') {
-      const measureData = (isMeasuring && measureStart && measureEnd)
-        ? { startX: measureStart.x, startY: measureStart.y, endX: measureEnd.x, endY: measureEnd.y }
+      const measureData = (isMeasuring && measurePoints.length > 0 && measureEnd)
+        ? { points: measurePoints, endX: measureEnd.x, endY: measureEnd.y, color: activePlayer.color || '#c9a84c' }
         : null;
       renderer2d.draw(players, activePlayer, actionModeEnabled, turnActiveCharId, allMovementData, measureData);
     }
