@@ -86,7 +86,7 @@ export class MapRenderer2D {
    * @param {number|null} [turnActiveCharId=null] – characterId of the active-turn player
    * @param {object[]} [movementDataList=[]] – array of movement data entries for range circles
    */
-  draw(players, activePlayer, actionMode = false, turnActiveCharId = null, movementDataList = []) {
+  draw(players, activePlayer, actionMode = false, turnActiveCharId = null, movementDataList = [], measureData = null) {
     const { ctx, gameMap, tileSize, camera } = this;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -444,7 +444,156 @@ export class MapRenderer2D {
       ctx.stroke();
     }
 
+    // --- Measurement overlay ---
+    if (measureData) {
+      this._drawMeasurement(ctx, measureData, ts);
+    }
+
     ctx.restore();
+  }
+
+  /**
+   * Parse a CSS hex colour into {r,g,b} (0-255).
+   */
+  _hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const n = h.length === 3
+      ? parseInt(h[0]+h[0]+h[1]+h[1]+h[2]+h[2], 16)
+      : parseInt(h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  /**
+   * Draw multi-segment measurement path with per-segment labels and running total.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{ points: {x:number,y:number}[], endX: number, endY: number, color: string }} data
+   * @param {number} ts – scaled tile size (tileSize * zoom)
+   */
+  _drawMeasurement(ctx, data, ts) {
+    const { points } = data;
+    if (!points || points.length === 0) return;
+
+    // Build full vertex list: all anchors + current cursor
+    const verts = [...points, { x: data.endX, y: data.endY }];
+    if (verts.length < 2) return;
+
+    const themeColor = data.color || '#c9a84c';
+    const { r, g, b } = this._hexToRgb(themeColor);
+    const dimColor = `rgba(${r}, ${g}, ${b}, 0.55)`;
+    const totalBg = `rgba(${r}, ${g}, ${b}, 0.35)`;
+    ctx.save();
+
+    let runningTotal = 0;
+
+    for (let i = 0; i < verts.length - 1; i++) {
+      const a = verts[i];
+      const bv = verts[i + 1];
+      const ax = a.x * ts;
+      const ay = a.y * ts;
+      const bx = bv.x * ts;
+      const by = bv.y * ts;
+
+      const dx = bv.x - a.x;
+      const dy = bv.y - a.y;
+      const segCells = Math.sqrt(dx * dx + dy * dy);
+      const segFeet = Math.round(segCells * 5);
+      runningTotal += segFeet;
+
+      const isLast = i === verts.length - 2;
+      const angle = Math.atan2(by - ay, bx - ax);
+
+      // --- Segment line ---
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = themeColor;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+
+      // --- Anchor dot ---
+      ctx.fillStyle = themeColor;
+      ctx.beginPath();
+      ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // --- Arrowhead on last segment ---
+      if (isLast && segCells > 0.05) {
+        const headLen = 14;
+        const headAngle = Math.PI / 6;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx - headLen * Math.cos(angle - headAngle), by - headLen * Math.sin(angle - headAngle));
+        ctx.lineTo(bx - headLen * Math.cos(angle + headAngle), by - headLen * Math.sin(angle + headAngle));
+        ctx.closePath();
+        ctx.fillStyle = themeColor;
+        ctx.fill();
+      }
+
+      // --- Per-segment distance label at midpoint ---
+      if (segCells > 0.05) {
+        const mx = (ax + bx) / 2;
+        const my = (ay + by) / 2;
+        const segLabel = `${segFeet}ft`;
+
+        this._drawMeasurePill(ctx, mx, my - 8, segLabel, isLast ? themeColor : dimColor);
+      }
+    }
+
+    // --- Running total label at midpoint of full path (only if more than one segment) ---
+    if (verts.length > 2) {
+      const first = verts[0];
+      const last = verts[verts.length - 1];
+      const mx = ((first.x + last.x) / 2) * ts;
+      const my = ((first.y + last.y) / 2) * ts;
+      const totalLabel = `Total: ${runningTotal}ft`;
+
+      this._drawMeasurePill(ctx, mx, my + 18, totalLabel, '#fff', totalBg);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw a pill-shaped label.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} cx – screen X centre of pill
+   * @param {number} cy – screen Y centre-ish (pill drawn above this point)
+   * @param {string} label
+   * @param {string} color – text/label colour
+   * @param {string} [bg='rgba(0,0,0,0.75)'] – pill background colour
+   */
+  _drawMeasurePill(ctx, cx, cy, label, color, bg = 'rgba(0,0,0,0.75)') {
+    ctx.font = 'bold 14px sans-serif';
+    const tm = ctx.measureText(label);
+    const padX = 6;
+    const padY = 4;
+    const lw = tm.width + padX * 2;
+    const lh = 18 + padY * 2;
+    const r = 8;
+    const px = cx - lw / 2;
+    const py = cy - lh;
+
+    // Background pill
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.moveTo(px + r, py);
+    ctx.lineTo(px + lw - r, py);
+    ctx.quadraticCurveTo(px + lw, py, px + lw, py + r);
+    ctx.lineTo(px + lw, py + lh - r);
+    ctx.quadraticCurveTo(px + lw, py + lh, px + lw - r, py + lh);
+    ctx.lineTo(px + r, py + lh);
+    ctx.quadraticCurveTo(px, py + lh, px, py + lh - r);
+    ctx.lineTo(px, py + r);
+    ctx.quadraticCurveTo(px, py, px + r, py);
+    ctx.closePath();
+    ctx.fill();
+
+    // Label text
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, py + lh / 2);
   }
 
   /**
